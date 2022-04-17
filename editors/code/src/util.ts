@@ -101,7 +101,8 @@ export function isRustDocument(document: vscode.TextDocument): document is RustD
     // by allowing only `file` schemes
     // unfortunately extensions that use diff views not always set this
     // to something different than 'file' (see ongoing bug: #4608)
-    return document.languageId === 'rust' && document.uri.scheme === 'file';
+    console.log("lang:", document.languageId, "file:", document.uri.scheme)
+    return document.languageId === 'rust' && (document.uri.scheme === 'file' || document.uri.scheme === 'vscode-notebook-cell');
 }
 
 export function isCargoTomlDocument(document: vscode.TextDocument): document is RustDocument {
@@ -136,7 +137,7 @@ export function setContextValue(key: string, value: any): Thenable<void> {
 export function memoizeAsync<Ret, TThis, Param extends string>(func: (this: TThis, arg: Param) => Promise<Ret>) {
     const cache = new Map<string, Ret>();
 
-    return async function(this: TThis, arg: Param) {
+    return async function (this: TThis, arg: Param) {
         const cached = cache.get(arg);
         if (cached) return cached;
 

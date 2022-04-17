@@ -50,7 +50,15 @@ export function createClient(serverPath: string, workspace: Workspace, extraEnv:
     }
 
     const clientOptions: lc.LanguageClientOptions = {
-        documentSelector: [{ scheme: 'file', language: 'rust' }],
+        documentSelector: [
+            {
+                notebook: {
+                    notebookType: "codebook", pattern: "**/*.md", scheme: "file"
+                }, language: "rust", pattern: "**/*.md", scheme: "file"
+            },
+            { scheme: 'file', language: 'rust' },
+            { scheme: 'file', language: 'markdown' },
+        ],
         initializationOptions,
         diagnosticCollectionName: "rustc",
         traceOutputChannel,

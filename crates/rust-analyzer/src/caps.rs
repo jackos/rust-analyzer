@@ -78,7 +78,7 @@ pub fn server_capabilities(config: &Config) -> ServerCapabilities {
                         FileOperationFilter {
                             scheme: Some(String::from("file")),
                             pattern: FileOperationPattern {
-                                glob: String::from("**/*.rs"),
+                                glob: String::from("**/*.{rs,md}"),
                                 matches: Some(FileOperationPatternKind::File),
                                 options: None,
                             },

@@ -255,6 +255,7 @@ impl GlobalState {
                     .flat_map(|root| {
                         root.include.into_iter().flat_map(|it| {
                             [
+                                format!("{}/**/*.md", it.display()),
                                 format!("{}/**/*.rs", it.display()),
                                 format!("{}/**/Cargo.toml", it.display()),
                                 format!("{}/**/Cargo.lock", it.display()),

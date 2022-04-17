@@ -122,7 +122,7 @@ impl GlobalState {
                         lsp_types::DocumentFilter {
                             language: None,
                             scheme: None,
-                            pattern: Some("**/*.rs".into()),
+                            pattern: Some("**/*.{rs,md}".into()),
                         },
                         lsp_types::DocumentFilter {
                             language: None,

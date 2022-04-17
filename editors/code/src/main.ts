@@ -38,6 +38,7 @@ async function tryActivate(context: vscode.ExtensionContext) {
 
     if ((vscode.workspace.workspaceFolders || []).length === 0) {
         const rustDocuments = vscode.workspace.textDocuments.filter(document => isRustDocument(document));
+        console.log("rust documents:", rustDocuments);
         if (rustDocuments.length > 0) {
             ctx = await Ctx.create(config, context, serverPath, { kind: 'Detached Files', files: rustDocuments });
         } else {
