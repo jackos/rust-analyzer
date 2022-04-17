@@ -11,7 +11,10 @@
       "path": "editors/code/",
       "problemMatcher": {
         "base": "$tsc-watch",
-        "fileLocation": ["relative", "${workspaceFolder}/editors/code/"]
+        "fileLocation": [
+          "relative",
+          "${workspaceFolder}/editors/code/"
+        ]
       },
       "isBackground": true,
     },
@@ -19,11 +22,22 @@
       "label": "Build Extension",
       "group": "build",
       "type": "npm",
+      "presentation": {
+        "echo": true,
+        "reveal": "never",
+        "focus": false,
+        "panel": "shared",
+        "showReuseMessage": true,
+        "clear": true
+      },
       "script": "build",
       "path": "editors/code/",
       "problemMatcher": {
         "base": "$tsc",
-        "fileLocation": ["relative", "${workspaceFolder}/editors/code/"]
+        "fileLocation": [
+          "relative",
+          "${workspaceFolder}/editors/code/"
+        ]
       },
     },
     {
@@ -49,18 +63,26 @@
       "path": "editors/code/",
       "problemMatcher": {
         "base": "$tsc",
-        "fileLocation": ["relative", "${workspaceFolder}/editors/code/"]
+        "fileLocation": [
+          "relative",
+          "${workspaceFolder}/editors/code/"
+        ]
       }
     },
-
     {
       "label": "Build Server and Extension",
-      "dependsOn": ["Build Server", "Build Extension"],
+      "dependsOn": [
+        "Build Server",
+        "Build Extension"
+      ],
       "problemMatcher": "$rustc"
     },
     {
       "label": "Build Server (Release) and Extension",
-      "dependsOn": ["Build Server (Release)", "Build Extension"],
+      "dependsOn": [
+        "Build Server (Release)",
+        "Build Extension"
+      ],
       "problemMatcher": "$rustc"
     }
   ]

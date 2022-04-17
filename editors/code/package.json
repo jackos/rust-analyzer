@@ -55,6 +55,7 @@
     },
     "activationEvents": [
         "onLanguage:rust",
+        "onLanguage:markdown",
         "onCommand:rust-analyzer.analyzerStatus",
         "onCommand:rust-analyzer.memoryUsage",
         "onCommand:rust-analyzer.reloadWorkspace",

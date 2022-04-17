@@ -115,6 +115,7 @@ impl Entry {
     ///
     /// See [`Directories::contains_file`].
     pub fn contains_file(&self, path: &AbsPath) -> bool {
+
         match self {
             Entry::Files(files) => files.iter().any(|it| it == path),
             Entry::Directories(dirs) => dirs.contains_file(path),
@@ -138,6 +139,7 @@ impl Directories {
     pub fn contains_file(&self, path: &AbsPath) -> bool {
         // First, check the file extension...
         let ext = path.extension().unwrap_or_default();
+        dbg!("testing debug", ext);
         if self.extensions.iter().all(|it| it.as_str() != ext) {
             return false;
         }

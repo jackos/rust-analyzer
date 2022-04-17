@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 
-import { assert } from './util';
+import { addLinesRange, assert } from './util';
 
 export async function applySnippetWorkspaceEdit(edit: vscode.WorkspaceEdit) {
     if (edit.entries().length === 1) {
@@ -14,7 +14,7 @@ export async function applySnippetWorkspaceEdit(edit: vscode.WorkspaceEdit) {
         if (editor) await editor.edit((builder) => {
             for (const indel of edits) {
                 assert(!parseSnippet(indel.newText), `bad ws edit: snippet received with multiple edits: ${JSON.stringify(edit)}`);
-                builder.replace(indel.range, indel.newText);
+                builder.replace(addLinesRange(indel.range, 1), indel.newText);
             }
         });
     }
@@ -39,7 +39,7 @@ export async function applySnippetTextEdits(editor: vscode.TextEditor, edits: vs
                 const prefix = newText.substr(0, placeholderStart);
                 const lastNewline = prefix.lastIndexOf('\n');
 
-                const startLine = indel.range.start.line + lineDelta + countLines(prefix);
+                const startLine = indel.range.start.line + 1 + lineDelta + countLines(prefix);
                 const startColumn = lastNewline === -1 ?
                     indel.range.start.character + placeholderStart
                     : prefix.length - lastNewline - 1;
@@ -48,11 +48,11 @@ export async function applySnippetTextEdits(editor: vscode.TextEditor, edits: vs
                     new vscode.Position(startLine, startColumn),
                     new vscode.Position(startLine, endColumn),
                 ));
-                builder.replace(indel.range, newText);
+                builder.replace(addLinesRange(indel.range, 1), newText);
             } else {
-                builder.replace(indel.range, indel.newText);
+                builder.replace(addLinesRange(indel.range, 1), indel.newText);
             }
-            lineDelta += countLines(indel.newText) - (indel.range.end.line - indel.range.start.line);
+            lineDelta += countLines(indel.newText) - (indel.range.end.line - indel.range.start.line + 1);
         }
     });
     if (selections.length > 0) editor.selections = selections;

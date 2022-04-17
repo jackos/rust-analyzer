@@ -2,7 +2,7 @@ import * as lc from 'vscode-languageclient/node';
 import * as vscode from 'vscode';
 import * as ra from '../src/lsp_ext';
 import * as Is from 'vscode-languageclient/lib/common/utils/is';
-import { assert } from './util';
+import { addLinesRange, assert } from './util';
 import { WorkspaceEdit } from 'vscode';
 import { Workspace } from './ctx';
 
@@ -53,8 +53,13 @@ export function createClient(serverPath: string, workspace: Workspace, extraEnv:
         documentSelector: [
             {
                 notebook: {
-                    notebookType: "codebook", pattern: "**/*.md", scheme: "file"
-                }, language: "rust", pattern: "**/*.md", scheme: "file"
+                    notebookType: "codebook",
+                    pattern: "**/*.md",
+                    scheme: "file",
+                },
+                language: "rust",
+                pattern: "**/*.md",
+                scheme: "file",
             },
             { scheme: 'file', language: 'rust' },
             { scheme: 'file', language: 'markdown' },
@@ -64,11 +69,16 @@ export function createClient(serverPath: string, workspace: Workspace, extraEnv:
         traceOutputChannel,
         middleware: {
             async provideHover(document: vscode.TextDocument, position: vscode.Position, token: vscode.CancellationToken, _next: lc.ProvideHoverSignature) {
-                const editor = vscode.window.activeTextEditor;
-                const positionOrRange = editor?.selection?.contains(position) ? client.code2ProtocolConverter.asRange(editor.selection) : client.code2ProtocolConverter.asPosition(position);
+                // const editor = vscode.window.activeTextEditor;
+
+                // const positionOrRange = editor?.selection?.contains(position) ? client.code2ProtocolConverter.asRange(editor.selection) : client.code2ProtocolConverter.asPosition(position);
+                // if ("line" in positionOrRange) {
+                //     positionOrRange.line += 1
+                // }
+                let newPosition = new vscode.Position(position.line + 1, position.character)
                 return client.sendRequest(ra.hover, {
                     textDocument: client.code2ProtocolConverter.asTextDocumentIdentifier(document),
-                    position: positionOrRange
+                    position: newPosition
                 }, token).then(
                     (result) => {
                         const hover =
@@ -92,12 +102,13 @@ export function createClient(serverPath: string, workspace: Workspace, extraEnv:
                     }
                 );
             },
+
             // Using custom handling of CodeActions to support action groups and snippet edits.
             // Note that this means we have to re-implement lazy edit resolving ourselves as well.
             async provideCodeActions(document: vscode.TextDocument, range: vscode.Range, context: vscode.CodeActionContext, token: vscode.CancellationToken, _next: lc.ProvideCodeActionsSignature) {
                 const params: lc.CodeActionParams = {
                     textDocument: client.code2ProtocolConverter.asTextDocumentIdentifier(document),
-                    range: client.code2ProtocolConverter.asRange(range),
+                    range: client.code2ProtocolConverter.asRange(addLinesRange(range, 1)),
                     context: await client.code2ProtocolConverter.asCodeActionContext(context, token)
                 };
                 return client.sendRequest(lc.CodeActionRequest.type, params, token).then(async (values) => {

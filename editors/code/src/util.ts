@@ -13,6 +13,22 @@ export function assert(condition: boolean, explanation: string): asserts conditi
     }
 }
 
+export function addLinesRange(range: vscode.Range, lines: number = 1): vscode.Range {
+    let start = new vscode.Position(range.start.line + lines, range.start.character)
+    let end = new vscode.Position(range.end.line + lines, range.end.character)
+    return new vscode.Range(start, end);
+}
+
+export function addLinesSelection(selection: vscode.Selection, lines: number = 1): vscode.Selection {
+    let anchor = new vscode.Position(selection.anchor.line + lines, selection.anchor.character)
+    let active = new vscode.Position(selection.active.line + lines, selection.active.character)
+    return new vscode.Selection(anchor, active);
+}
+
+export function addLinesPosition(position: vscode.Position, lines: number = 1): vscode.Position {
+    return new vscode.Position(position.line + lines, position.character);
+}
+
 export const log = new class {
     private enabled = true;
     private readonly output = vscode.window.createOutputChannel("Rust Analyzer Client");
@@ -102,7 +118,7 @@ export function isRustDocument(document: vscode.TextDocument): document is RustD
     // unfortunately extensions that use diff views not always set this
     // to something different than 'file' (see ongoing bug: #4608)
     console.log("lang:", document.languageId, "file:", document.uri.scheme)
-    return document.languageId === 'rust' && (document.uri.scheme === 'file' || document.uri.scheme === 'vscode-notebook-cell');
+    return (document.languageId === 'rust' || document.languageId === "markdown") && (document.uri.scheme === 'file' || document.uri.scheme === 'vscode-notebook-cell');
 }
 
 export function isCargoTomlDocument(document: vscode.TextDocument): document is RustDocument {

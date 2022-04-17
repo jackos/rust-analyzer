@@ -153,7 +153,18 @@ impl Vfs {
     /// If the path does not currently exists in the `Vfs`, allocates a new
     /// [`FileId`] for it.
     pub fn set_file_contents(&mut self, path: VfsPath, contents: Option<Vec<u8>>) -> bool {
-        let file_id = self.alloc_file_id(path);
+        let file_id = self.alloc_file_id(path.clone());
+        let x = contents.clone().unwrap_or(vec![]);
+        let x_string = String::from_utf8_lossy(&x);
+        // if let Some(pair) = path.name_and_extension(){
+        //     if let Some(ext) = pair.1 {
+        //         if ext == "md" {
+        //             let new_contents = String::from("fn main() {");
+
+        //             dbg!(file_id, x_string);
+        //         }
+        //     }
+        // }
         let change_kind = match (&self.get(file_id), &contents) {
             (None, None) => return false,
             (None, Some(_)) => ChangeKind::Create,

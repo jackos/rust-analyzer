@@ -27,7 +27,6 @@ use crate::{
 
 pub fn main_loop(config: Config, connection: Connection) -> Result<()> {
     tracing::info!("initial config: {:#?}", config);
-
     // Windows scheduler implements priority boosts: if thread waits for an
     // event (like a condvar), and event fires, priority of the thread is
     // temporary bumped. This optimization backfires in our case: each time the

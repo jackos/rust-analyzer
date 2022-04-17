@@ -8,7 +8,7 @@ import { applySnippetWorkspaceEdit, applySnippetTextEdits } from './snippets';
 import { spawnSync } from 'child_process';
 import { RunnableQuickPick, selectRunnable, createTask, createArgs } from './run';
 import { AstInspector } from './ast_inspector';
-import { isRustDocument, isCargoTomlDocument, sleep, isRustEditor } from './util';
+import { isRustDocument, isCargoTomlDocument, sleep, isRustEditor, addLinesRange, addLinesSelection, addLinesPosition } from './util';
 import { startDebugSession, makeDebugConfig } from './debug';
 import { LanguageClient } from 'vscode-languageclient/node';
 
@@ -149,8 +149,9 @@ export function moveItem(ctx: Ctx, direction: ra.Direction): Cmd {
         const client = ctx.client;
         if (!editor || !client) return;
 
+        editor.selection = new vscode.Selection(editor.selection.anchor, editor.selection.start)
         const lcEdits = await client.sendRequest(ra.moveItem, {
-            range: client.code2ProtocolConverter.asRange(editor.selection),
+            range: client.code2ProtocolConverter.asRange(addLinesSelection(editor.selection)),
             textDocument: ctx.client.code2ProtocolConverter.asTextDocumentIdentifier(editor.document),
             direction
         });
@@ -172,7 +173,7 @@ export function onEnter(ctx: Ctx): Cmd {
         const lcEdits = await client.sendRequest(ra.onEnter, {
             textDocument: ctx.client.code2ProtocolConverter.asTextDocumentIdentifier(editor.document),
             position: client.code2ProtocolConverter.asPosition(
-                editor.selection.active,
+                addLinesPosition(editor.selection.active),
             ),
         }).catch((_error: any) => {
             // client.handleFailedRequest(OnEnterRequest.type, error, null);
@@ -202,7 +203,7 @@ export function parentModule(ctx: Ctx): Cmd {
         const locations = await client.sendRequest(ra.parentModule, {
             textDocument: ctx.client.code2ProtocolConverter.asTextDocumentIdentifier(editor.document),
             position: client.code2ProtocolConverter.asPosition(
-                editor.selection.active,
+                addLinesPosition(editor.selection.active),
             ),
         });
         if (!locations) return;
@@ -241,7 +242,7 @@ export function openCargoToml(ctx: Ctx): Cmd {
 
         const doc = await vscode.workspace.openTextDocument(uri);
         const e = await vscode.window.showTextDocument(doc);
-        e.selection = new vscode.Selection(range.start, range.start);
+        e.selection = addLinesSelection(new vscode.Selection(range.start, range.start));
         e.revealRange(range, vscode.TextEditorRevealType.InCenter);
     };
 }
@@ -252,8 +253,11 @@ export function ssr(ctx: Ctx): Cmd {
         const client = ctx.client;
         if (!editor || !client) return;
 
-        const position = editor.selection.active;
+        const position = addLinesPosition(editor.selection.active);
         const selections = editor.selections;
+        for (let selection of selections) {
+            selection = addLinesSelection(selection);
+        }
         const textDocument = ctx.client.code2ProtocolConverter.asTextDocumentIdentifier(editor.document);
 
         const options: vscode.InputBoxOptions = {
@@ -338,7 +342,7 @@ export function syntaxTree(ctx: Ctx): Cmd {
 
             // When the range based query is enabled we take the range of the selection
             const range = uri.query === 'range=true' && !rustEditor.selection.isEmpty
-                ? ctx.client.code2ProtocolConverter.asRange(rustEditor.selection)
+                ? ctx.client.code2ProtocolConverter.asRange(addLinesSelection(rustEditor.selection))
                 : null;
 
             const params = { textDocument: { uri: rustEditor.document.uri.toString() }, range, };
