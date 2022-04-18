@@ -44,6 +44,7 @@ pub struct Config {
 }
 
 /// Message about an action taken by a [`Handle`].
+
 pub enum Message {
     /// Indicate a gradual progress.
     ///
@@ -139,7 +140,6 @@ impl Directories {
     pub fn contains_file(&self, path: &AbsPath) -> bool {
         // First, check the file extension...
         let ext = path.extension().unwrap_or_default();
-        dbg!("testing debug", ext);
         if self.extensions.iter().all(|it| it.as_str() != ext) {
             return false;
         }

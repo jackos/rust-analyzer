@@ -2,7 +2,7 @@ import * as lc from 'vscode-languageclient/node';
 import * as vscode from 'vscode';
 import * as ra from '../src/lsp_ext';
 import * as Is from 'vscode-languageclient/lib/common/utils/is';
-import { addLinesRange, assert } from './util';
+import { addLinesPosition, addLinesRange, assert } from './util';
 import { WorkspaceEdit } from 'vscode';
 import { Workspace } from './ctx';
 
@@ -52,17 +52,11 @@ export function createClient(serverPath: string, workspace: Workspace, extraEnv:
     const clientOptions: lc.LanguageClientOptions = {
         documentSelector: [
             {
-                notebook: {
-                    notebookType: "codebook",
-                    pattern: "**/*.md",
-                    scheme: "file",
-                },
-                language: "rust",
-                pattern: "**/*.md",
-                scheme: "file",
+                notebook: { notebookType: "codebook", pattern: "**/*.md", scheme: "file" },
+                language: "rust"
             },
             { scheme: 'file', language: 'rust' },
-            { scheme: 'file', language: 'markdown' },
+            // { scheme: 'file', language: 'markdown' },
         ],
         initializationOptions,
         diagnosticCollectionName: "rustc",
@@ -75,10 +69,12 @@ export function createClient(serverPath: string, workspace: Workspace, extraEnv:
                 // if ("line" in positionOrRange) {
                 //     positionOrRange.line += 1
                 // }
-                let newPosition = new vscode.Position(position.line + 1, position.character)
+                // let newPosition = new vscode.Position(position.line + 1, position.character)
+                const editor = vscode.window.activeTextEditor;
+                const positionOrRange = editor?.selection?.contains(position) ? client.code2ProtocolConverter.asRange(editor.selection) : client.code2ProtocolConverter.asPosition(position);
                 return client.sendRequest(ra.hover, {
                     textDocument: client.code2ProtocolConverter.asTextDocumentIdentifier(document),
-                    position: newPosition
+                    position: positionOrRange
                 }, token).then(
                     (result) => {
                         const hover =
@@ -108,7 +104,7 @@ export function createClient(serverPath: string, workspace: Workspace, extraEnv:
             async provideCodeActions(document: vscode.TextDocument, range: vscode.Range, context: vscode.CodeActionContext, token: vscode.CancellationToken, _next: lc.ProvideCodeActionsSignature) {
                 const params: lc.CodeActionParams = {
                     textDocument: client.code2ProtocolConverter.asTextDocumentIdentifier(document),
-                    range: client.code2ProtocolConverter.asRange(addLinesRange(range, 1)),
+                    range: client.code2ProtocolConverter.asRange(range),
                     context: await client.code2ProtocolConverter.asCodeActionContext(context, token)
                 };
                 return client.sendRequest(lc.CodeActionRequest.type, params, token).then(async (values) => {
@@ -132,7 +128,6 @@ export function createClient(serverPath: string, workspace: Workspace, extraEnv:
                             title: item.title,
                             arguments: [item],
                         };
-
                         // Set a dummy edit, so that VS Code doesn't try to resolve this.
                         action.edit = new WorkspaceEdit();
 

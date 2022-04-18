@@ -10,10 +10,11 @@ use always_assert::always;
 use crossbeam_channel::{select, Receiver};
 use ide_db::base_db::{SourceDatabaseExt, VfsPath};
 use lsp_server::{Connection, Notification, Request};
-use lsp_types::notification::Notification as _;
+use lsp_types::{notification::Notification as _, Range, Position};
 use vfs::{ChangeKind, FileId};
 
 use crate::{
+    notebook::offset_range,
     config::Config,
     dispatch::{NotificationDispatcher, RequestDispatcher},
     from_proto,
@@ -484,7 +485,8 @@ impl GlobalState {
                 let version = from_proto::vfs_path(&url)
                     .map(|path| self.mem_docs.get(&path).map(|it| it.version))
                     .unwrap_or_default();
-
+                    
+                dbg!(&diagnostics);
                 self.send_notification::<lsp_types::notification::PublishDiagnostics>(
                     lsp_types::PublishDiagnosticsParams { uri: url, diagnostics, version },
                 );
@@ -654,7 +656,11 @@ impl GlobalState {
                 // we accepted notification.
                 Ok(())
             })?
-            .on::<lsp_types::notification::DidOpenTextDocument>(|this, params| {
+            .on::<lsp_types::notification::DidOpenTextDocument>(|this, mut params| {
+                if let Some(fragment) = params.text_document.uri.fragment(){
+                    this.notebook.insert_cell(fragment, params.text_document.text);
+                    params.text_document.text = this.notebook.get_program();
+                }
                 if let Ok(path) = from_proto::vfs_path(&params.text_document.uri) {
                     if this
                         .mem_docs
@@ -670,7 +676,15 @@ impl GlobalState {
                 }
                 Ok(())
             })?
-            .on::<lsp_types::notification::DidChangeTextDocument>(|this, params| {
+            .on::<lsp_types::notification::DidChangeTextDocument>(|this, mut params| {
+                if let Some(fragment) = params.text_document.uri.fragment() {
+                    let offset = this.notebook.get_line_offset(fragment);
+                    for i in 0..params.content_changes.len() {
+                        let range = params.content_changes[i].range.unwrap();
+                        params.content_changes[i].range = Some(offset_range(range, offset));
+                        // params.content_changes[i].text = this.notebook.get_program();
+                    }
+                }
                 if let Ok(path) = from_proto::vfs_path(&params.text_document.uri) {
                     match this.mem_docs.get_mut(&path) {
                         Some(doc) => {
@@ -757,6 +771,7 @@ impl GlobalState {
                 Ok(())
             })?
             .on::<lsp_types::notification::DidChangeWatchedFiles>(|this, params| {
+                eprintln!("did change watched files");
                 for change in params.changes {
                     if let Ok(path) = from_proto::abs_path(&change.uri) {
                         this.loader.handle.invalidate(path);

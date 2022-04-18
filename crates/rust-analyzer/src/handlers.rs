@@ -7,6 +7,8 @@ use std::{
     process::{self, Stdio},
 };
 
+
+
 use anyhow::Context;
 use ide::{
     AnnotationConfig, AssistKind, AssistResolveStrategy, FileId, FilePosition, FileRange,
@@ -23,7 +25,7 @@ use lsp_types::{
     NumberOrString, Position, PrepareRenameResponse, Range, RenameParams,
     SemanticTokensDeltaParams, SemanticTokensFullDeltaResult, SemanticTokensParams,
     SemanticTokensRangeParams, SemanticTokensRangeResult, SemanticTokensResult, SymbolInformation,
-    SymbolTag, TextDocumentIdentifier, Url, WorkspaceEdit,
+    SymbolTag, TextDocumentIdentifier, Url, WorkspaceEdit, TextDocumentPositionParams,
 };
 use project_model::{ManifestPath, ProjectWorkspace, TargetKind};
 use serde_json::json;
@@ -33,6 +35,8 @@ use vfs::AbsPathBuf;
 
 use crate::{
     cargo_target_spec::CargoTargetSpec,
+    notebook::offset_position,
+    notebook::offset_range,
     config::{RustfmtConfig, WorkspaceSymbolConfig},
     diff::diff,
     from_proto,
@@ -783,11 +787,20 @@ pub(crate) fn handle_related_tests(
 
 pub(crate) fn handle_completion(
     snap: GlobalStateSnapshot,
-    params: lsp_types::CompletionParams,
+    mut params: lsp_types::CompletionParams,
 ) -> Result<Option<lsp_types::CompletionResponse>> {
     let _p = profile::span("handle_completion");
+    let uri = params.text_document_position.text_document.uri.clone();
+    if let Some(fragment) = uri.fragment() {
+        let offset = snap.notebook.get_line_offset(fragment);
+        let text_inter = offset_position(params.text_document_position.position, offset);
+        params.text_document_position = TextDocumentPositionParams{position: text_inter, text_document: TextDocumentIdentifier { uri }};
+    }
     let text_document_position = params.text_document_position.clone();
     let position = from_proto::file_position(&snap, params.text_document_position)?;
+    dbg!(&position);
+    dbg!(&text_document_position);
+
     let completion_triggered_after_single_colon = {
         let mut res = false;
         if let Some(ctx) = params.context {
@@ -839,40 +852,46 @@ pub(crate) fn handle_completion_resolve(
         None => return Ok(original_completion),
     };
 
-    let resolve_data: lsp_ext::CompletionResolveData = serde_json::from_value(data)?;
-
-    let file_id = from_proto::file_id(&snap, &resolve_data.position.text_document.uri)?;
-    let line_index = snap.file_line_index(file_id)?;
-    let offset = from_proto::offset(&line_index, resolve_data.position.position)?;
-
-    let additional_edits = snap
-        .analysis
-        .resolve_completion_edits(
-            &snap.config.completion(),
-            FilePosition { file_id, offset },
-            resolve_data
-                .imports
-                .into_iter()
-                .map(|import| (import.full_import_path, import.imported_name)),
-        )?
-        .into_iter()
-        .flat_map(|edit| edit.into_iter().map(|indel| to_proto::text_edit(&line_index, indel)))
-        .collect::<Vec<_>>();
-
-    if !all_edits_are_disjoint(&original_completion, &additional_edits) {
-        return Err(LspError::new(
-            ErrorCode::InternalError as i32,
-            "Import edit overlaps with the original completion edits, this is not LSP-compliant"
-                .into(),
-        )
-        .into());
+    let mut resolve_data: lsp_ext::CompletionResolveData = serde_json::from_value(data)?;
+    if let Some(fragment) = resolve_data.position.text_document.uri.fragment() {
+        let offset = snap.notebook.get_line_offset(fragment);
+        resolve_data.position = TextDocumentPositionParams::new(resolve_data.position.text_document, offset_position(resolve_data.position.position, offset));
+        // resolve_data.position.position.line = 1;
+        // resolve_data.position.position.character = 2;
     }
 
-    if let Some(original_additional_edits) = original_completion.additional_text_edits.as_mut() {
-        original_additional_edits.extend(additional_edits.into_iter())
-    } else {
-        original_completion.additional_text_edits = Some(additional_edits);
-    }
+    // let file_id = from_proto::file_id(&snap, &resolve_data.position.text_document.uri)?;
+    // let line_index = snap.file_line_index(file_id)?;
+    // let offset = from_proto::offset(&line_index, resolve_data.position.position)?;
+
+    // let additional_edits = snap
+    //     .analysis
+    //     .resolve_completion_edits(
+    //         &snap.config.completion(),
+    //         FilePosition { file_id, offset },
+    //         resolve_data
+    //             .imports
+    //             .into_iter()
+    //             .map(|import| (import.full_import_path, import.imported_name)),
+    //     )?
+    //     .into_iter()
+    //     .flat_map(|edit| edit.into_iter().map(|indel| to_proto::text_edit(&line_index, indel)))
+    //     .collect::<Vec<_>>();
+
+    // if !all_edits_are_disjoint(&original_completion, &additional_edits) {
+    //     return Err(LspError::new(
+    //         ErrorCode::InternalError as i32,
+    //         "Import edit overlaps with the original completion edits, this is not LSP-compliant"
+    //             .into(),
+    //     )
+    //     .into());
+    // }
+
+    // if let Some(original_additional_edits) = original_completion.additional_text_edits.as_mut() {
+    //     original_additional_edits.extend(additional_edits.into_iter())
+    // } else {
+    //     original_completion.additional_text_edits = Some(additional_edits);
+    // }
 
     Ok(original_completion)
 }
@@ -914,10 +933,15 @@ pub(crate) fn handle_hover(
     params: lsp_ext::HoverParams,
 ) -> Result<Option<lsp_ext::Hover>> {
     let _p = profile::span("handle_hover");
-    let range = match params.position {
+    let mut range = match params.position {
         PositionOrRange::Position(position) => Range::new(position, position),
         PositionOrRange::Range(range) => range,
     };
+
+    if let Some(fragment) = params.text_document.uri.fragment() {
+        let offset = snap.notebook.get_line_offset(fragment);
+        range = offset_range(range, offset);
+    }
 
     let file_range = from_proto::file_range(&snap, params.text_document, range)?;
     let info = match snap.analysis.hover(&snap.config.hover(), file_range)? {

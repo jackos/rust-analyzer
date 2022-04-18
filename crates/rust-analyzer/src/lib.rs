@@ -35,6 +35,7 @@ mod thread_pool;
 mod mem_docs;
 mod diff;
 mod op_queue;
+mod notebook;
 pub mod lsp_ext;
 pub mod config;
 

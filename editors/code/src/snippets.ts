@@ -3,6 +3,7 @@ import * as vscode from 'vscode';
 import { addLinesRange, assert } from './util';
 
 export async function applySnippetWorkspaceEdit(edit: vscode.WorkspaceEdit) {
+    console.log(edit);
     if (edit.entries().length === 1) {
         const [uri, edits] = edit.entries()[0];
         const editor = await editorFromUri(uri);
@@ -21,6 +22,7 @@ export async function applySnippetWorkspaceEdit(edit: vscode.WorkspaceEdit) {
 }
 
 async function editorFromUri(uri: vscode.Uri): Promise<vscode.TextEditor | undefined> {
+    console.log(uri);
     if (vscode.window.activeTextEditor?.document.uri !== uri) {
         // `vscode.window.visibleTextEditors` only contains editors whose contents are being displayed
         await vscode.window.showTextDocument(uri, {});
@@ -29,6 +31,7 @@ async function editorFromUri(uri: vscode.Uri): Promise<vscode.TextEditor | undef
 }
 
 export async function applySnippetTextEdits(editor: vscode.TextEditor, edits: vscode.TextEdit[]) {
+    console.log(editor, edits);
     const selections: vscode.Selection[] = [];
     let lineDelta = 0;
     await editor.edit((builder) => {

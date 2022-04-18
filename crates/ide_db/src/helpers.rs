@@ -2,11 +2,11 @@
 
 use std::collections::VecDeque;
 
-use base_db::FileId;
+use base_db::{FileId, FilePosition, FileRange};
 use hir::{ItemInNs, ModuleDef, Name, Semantics};
 use syntax::{
     ast::{self, make},
-    AstToken, SyntaxKind, SyntaxToken, TokenAtOffset,
+    AstToken, SyntaxKind, SyntaxToken, TokenAtOffset, TextSize, TextRange,
 };
 
 use crate::{defs::Definition, generated, RootDatabase};
@@ -17,6 +17,18 @@ pub fn item_name(db: &RootDatabase, item: ItemInNs) -> Option<Name> {
         ItemInNs::Values(module_def_id) => module_def_id.name(db),
         ItemInNs::Macros(macro_def_id) => Some(macro_def_id.name(db)),
     }
+}
+
+pub fn offset_position(position: FilePosition, offset: u32) -> FilePosition {
+    let offset = position.offset + TextSize::from(offset);
+    FilePosition{file_id: position.file_id, offset}
+}
+
+
+pub fn offset_range(range: FileRange, offset: u32) -> FileRange {
+    let start = range.range.start() + TextSize::from(offset);
+    let end = range.range.end() + TextSize::from(offset);
+    FileRange { file_id: range.file_id, range: TextRange::new(start, end) }
 }
 
 /// Picks the token with the highest rank returned by the passed in function.

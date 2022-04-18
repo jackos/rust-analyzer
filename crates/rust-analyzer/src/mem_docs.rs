@@ -9,7 +9,7 @@ use vfs::VfsPath;
 ///
 /// For these document, there true contents is maintained by the client. It
 /// might be different from what's on disk.
-#[derive(Default, Clone)]
+#[derive(Default, Clone, Debug)]
 pub(crate) struct MemDocs {
     mem_docs: FxHashMap<VfsPath, DocumentData>,
     added_or_removed: bool,

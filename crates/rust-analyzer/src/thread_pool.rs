@@ -2,6 +2,7 @@
 //! properly.
 use crossbeam_channel::Sender;
 
+#[derive(Debug)]
 pub(crate) struct TaskPool<T> {
     sender: Sender<T>,
     inner: threadpool::ThreadPool,

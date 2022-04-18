@@ -7,11 +7,13 @@
 
 use std::sync::Arc;
 
+#[derive(Debug)]
 pub enum OffsetEncoding {
     Utf8,
     Utf16,
 }
 
+#[derive(Debug)]
 pub(crate) struct LineIndex {
     pub(crate) index: Arc<ide::LineIndex>,
     pub(crate) endings: LineEndings,

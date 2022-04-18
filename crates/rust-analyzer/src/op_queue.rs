@@ -1,6 +1,7 @@
 //! Bookkeeping to make sure only one long-running operation is being executed
 //! at a time.
 
+#[derive(Debug)]
 pub(crate) struct OpQueue<Output> {
     op_requested: bool,
     op_in_progress: bool,

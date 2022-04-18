@@ -223,25 +223,27 @@ impl NotifyActor {
 }
 
 fn read(path: &AbsPath) -> Option<Vec<u8>> {
-    let contents = std::fs::read(path).unwrap_or(vec![]);
+    let contents = std::fs::read(path).ok()?;
     if let Some(x) = path.extension() {
         if x.to_str().unwrap() == "md" {
-            let mut result = "fn main(){\n".to_string();
+            let mut result = "fn main() {".to_string();
             let text = String::from_utf8_lossy(&contents);
             let lines = text.split("\n").into_iter();
             for line in lines {
                 if line.starts_with("```"){
                     // result.push_str("\\n")
                 }else {
-                    result.push_str(&(line.to_string() + "\n"));
+                    result.push('\n');
+                    result.push_str(&(line.to_string()));
                 }
             }
-            result.push('}');
+            result.push_str("}\n");
             dbg!(&result);
             return Some(result.into_bytes())
         }
     }
-    std::fs::read(path).ok()
+    // dbg!(String::from_utf8_lossy(&contents));
+    Some(contents)
 }
 
 fn log_notify_error<T>(res: notify::Result<T>) -> Option<T> {

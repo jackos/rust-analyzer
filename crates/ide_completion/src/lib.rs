@@ -144,6 +144,7 @@ pub fn completions(
     config: &CompletionConfig,
     position: FilePosition,
 ) -> Option<Completions> {
+    dbg!(&position);
     let ctx = CompletionContext::new(db, position, config)?;
 
     let mut acc = Completions::default();

@@ -24,6 +24,7 @@ use crate::{
     lsp_ext,
     main_loop::Task,
     mem_docs::MemDocs,
+    notebook::Notebook,
     op_queue::OpQueue,
     reload::{self, SourceRootConfig},
     thread_pool::TaskPool,
@@ -56,6 +57,7 @@ pub(crate) struct GlobalState {
     pub(crate) analysis_host: AnalysisHost,
     pub(crate) diagnostics: DiagnosticCollection,
     pub(crate) mem_docs: MemDocs,
+    pub(crate) notebook: Notebook,
     pub(crate) semantic_tokens_cache: Arc<Mutex<FxHashMap<Url, SemanticTokens>>>,
     pub(crate) shutdown_requested: bool,
     pub(crate) proc_macro_changed: bool,
@@ -112,6 +114,7 @@ pub(crate) struct GlobalStateSnapshot {
     pub(crate) analysis: Analysis,
     pub(crate) check_fixes: CheckFixes,
     mem_docs: MemDocs,
+    pub(crate) notebook: Notebook,
     pub(crate) semantic_tokens_cache: Arc<Mutex<FxHashMap<Url, SemanticTokens>>>,
     vfs: Arc<RwLock<(vfs::Vfs, FxHashMap<FileId, LineEndings>)>>,
     pub(crate) workspaces: Arc<Vec<ProjectWorkspace>>,
@@ -152,7 +155,7 @@ impl GlobalState {
             last_reported_status: None,
             source_root_config: SourceRootConfig::default(),
             proc_macro_client: None,
-
+            notebook: Notebook::default(),
             flycheck: Vec::new(),
             flycheck_sender,
             flycheck_receiver,
@@ -179,7 +182,7 @@ impl GlobalState {
         let mut fs_changes = Vec::new();
         // A file was added or deleted
         let mut has_structure_changes = false;
-
+        
         let (change, changed_files) = {
             let mut change = Change::new();
             let (vfs, line_endings_map) = &mut *self.vfs.write();
@@ -240,6 +243,7 @@ impl GlobalState {
             vfs: Arc::clone(&self.vfs),
             check_fixes: Arc::clone(&self.diagnostics.check_fixes),
             mem_docs: self.mem_docs.clone(),
+            notebook: self.notebook.clone(),
             semantic_tokens_cache: Arc::clone(&self.semantic_tokens_cache),
         }
     }

@@ -70,6 +70,7 @@ pub struct Vfs {
 }
 
 /// Changed file in the [`Vfs`].
+#[derive(Debug)]
 pub struct ChangedFile {
     /// Id of the changed file
     pub file_id: FileId,
@@ -154,14 +155,14 @@ impl Vfs {
     /// [`FileId`] for it.
     pub fn set_file_contents(&mut self, path: VfsPath, contents: Option<Vec<u8>>) -> bool {
         let file_id = self.alloc_file_id(path.clone());
-        let x = contents.clone().unwrap_or(vec![]);
-        let x_string = String::from_utf8_lossy(&x);
+        // let x = contents.clone().unwrap_or(vec![]);
+        // let x_string = String::from_utf8_lossy(&x);
         // if let Some(pair) = path.name_and_extension(){
         //     if let Some(ext) = pair.1 {
         //         if ext == "md" {
         //             let new_contents = String::from("fn main() {");
 
-        //             dbg!(file_id, x_string);
+                    // dbg!(file_id, x_string);
         //         }
         //     }
         // }

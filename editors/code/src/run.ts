@@ -28,6 +28,7 @@ export async function selectRunnable(ctx: Ctx, prevRunnable?: RunnableQuickPick,
     if (prevRunnable) {
         items.push(prevRunnable);
     }
+    console.log(items);
     for (const r of runnables) {
         if (
             prevRunnable &&
