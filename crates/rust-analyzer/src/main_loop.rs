@@ -486,7 +486,6 @@ impl GlobalState {
                     .map(|path| self.mem_docs.get(&path).map(|it| it.version))
                     .unwrap_or_default();
                     
-                dbg!(&diagnostics);
                 self.send_notification::<lsp_types::notification::PublishDiagnostics>(
                     lsp_types::PublishDiagnosticsParams { uri: url, diagnostics, version },
                 );

@@ -238,7 +238,6 @@ fn read(path: &AbsPath) -> Option<Vec<u8>> {
                 }
             }
             result.push_str("}\n");
-            dbg!(&result);
             return Some(result.into_bytes())
         }
     }

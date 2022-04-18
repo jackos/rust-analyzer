@@ -41,7 +41,11 @@ impl Notebook {
 }
 
 pub(crate) fn offset_position(position: Position, offset: u32) -> Position {
-    Position::new(position.line + offset + 1, position.character)
+    Position::new(position.line + offset+ 1, position.character)
+}
+
+pub(crate) fn negative_offset(position: Position, offset: u32) -> Position {
+    Position::new(position.line - offset, position.character)
 }
 
 pub(crate) fn offset_range(range: Range, offset: u32) -> Range {
