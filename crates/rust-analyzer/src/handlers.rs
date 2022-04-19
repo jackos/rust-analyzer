@@ -35,8 +35,7 @@ use vfs::AbsPathBuf;
 
 use crate::{
     cargo_target_spec::CargoTargetSpec,
-    notebook::{offset_position, negative_offset},
-    notebook::offset_range,
+    notebook::{offset_range, offset_position},
     config::{RustfmtConfig, WorkspaceSymbolConfig},
     diff::diff,
     from_proto,
@@ -791,22 +790,23 @@ pub(crate) fn handle_completion(
 ) -> Result<Option<lsp_types::CompletionResponse>> {
     let _p = profile::span("handle_completion");
     let uri = params.text_document_position.text_document.uri.clone();
+    let original_position = params.text_document_position.clone();
     if let Some(fragment) = uri.fragment() {
-        // let offset = snap.notebook.get_line_offset(fragment);
-        // let text_inter = negative_offset(params.text_document_position.position, offset + 1);
-        params.text_document_position.position.line = 0;
-        params.text_document_position.position.character = 2;
-        // params.text_document_position = TextDocumentPositionParams{position: text_inter, text_document: TextDocumentIdentifier { uri }};
+        let offset = snap.notebook.get_line_offset(fragment);
+        let text_inter = offset_position(params.text_document_position.position, offset);
+        params.text_document_position = TextDocumentPositionParams{position: text_inter, text_document: TextDocumentIdentifier { uri }};
+        // params.text_document_position.position.line = 0;
+        // params.text_document_position.position.character = 2;
     }
-    let text_document_position = params.text_document_position.clone();
-    let position = from_proto::file_position(&snap, params.text_document_position.clone())?;
+    let new_file_position = from_proto::file_position(&snap, params.text_document_position)?;
+    let original_file_position = from_proto::file_position(&snap, original_position.clone())?;
     let completion_triggered_after_single_colon = {
         let mut res = false;
         if let Some(ctx) = params.context {
             if ctx.trigger_character.as_deref() == Some(":") {
-                let source_file = snap.analysis.parse(position.file_id)?;
+                let source_file = snap.analysis.parse(new_file_position.file_id)?;
                 let left_token =
-                    source_file.syntax().token_at_offset(position.offset).left_biased();
+                    source_file.syntax().token_at_offset(new_file_position.offset).left_biased();
                 match left_token {
                     Some(left_token) => res = left_token.kind() == T![:],
                     None => res = true,
@@ -820,37 +820,37 @@ pub(crate) fn handle_completion(
     }
 
     let completion_config = &snap.config.completion();
-    let items = match snap.analysis.completions(completion_config, position)? {
+    let items = match snap.analysis.completions(completion_config, new_file_position)? {
         None => return Ok(None),
         Some(items) => items,
     };
-    let line_index = snap.file_line_index(position.file_id)?;
+    let line_index = snap.file_line_index(new_file_position.file_id)?;
 
     // let pos = TextDocumentPositionParams::new(TextDocumentIdentifier { uri:  params.text_document_position.text_document.uri}, Position::new(0, 2));
-    let mut items =
-        to_proto::completion_items(&snap.config, &line_index, text_document_position, items);
+    let items =
+        to_proto::completion_items(&snap.config, &line_index, original_position, items);
 
-    for item in &mut items {
-        if let Some(a) = &mut item.text_edit {
-            dbg!(&a);
-            if let lsp_types::CompletionTextEdit::Edit(e) = a {
-                e.range.start.character = 2;
-                e.range.end.character = 2;
-                e.range.start.line = 1;
-                e.range.end.line = 1;
-            }
-            if let lsp_types::CompletionTextEdit::InsertAndReplace(e) = a {
-                e.insert.start.character = 2;
-                e.insert.end.character = 2;
-                e.replace.start.character = 2;
-                e.replace.end.character = 2;
-                e.insert.start.line = 1;
-                e.insert.end.line = 1;
-                e.replace.start.line= 1;
-                e.replace.end.line = 1;
-            }
-        }
-    }
+    // for item in &mut items {
+    //     if let Some(a) = &mut item.text_edit {
+    //         dbg!(&a);
+    //         if let lsp_types::CompletionTextEdit::Edit(e) = a {
+    //             e.range.start.character = 2;
+    //             e.range.end.character = 2;
+    //             e.range.start.line = 1;
+    //             e.range.end.line = 1;
+    //         }
+    //         if let lsp_types::CompletionTextEdit::InsertAndReplace(e) = a {
+    //             e.insert.start.character = 2;
+    //             e.insert.end.character = 2;
+    //             e.replace.start.character = 2;
+    //             e.replace.end.character = 2;
+    //             e.insert.start.line = 1;
+    //             e.insert.end.line = 1;
+    //             e.replace.start.line= 1;
+    //             e.replace.end.line = 1;
+    //         }
+    //     }
+    // }
 
     let completion_list = lsp_types::CompletionList { is_incomplete: true, items };
     Ok(Some(completion_list.into()))

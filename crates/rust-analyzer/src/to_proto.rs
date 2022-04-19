@@ -216,6 +216,10 @@ pub(crate) fn completion_items(
     res
 }
 
+fn notebook_completion_item(){
+
+}
+
 fn completion_item(
     acc: &mut Vec<lsp_types::CompletionItem>,
     config: &Config,
