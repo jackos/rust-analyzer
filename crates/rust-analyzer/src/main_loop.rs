@@ -10,11 +10,10 @@ use always_assert::always;
 use crossbeam_channel::{select, Receiver};
 use ide_db::base_db::{SourceDatabaseExt, VfsPath};
 use lsp_server::{Connection, Notification, Request};
-use lsp_types::{notification::Notification as _, Range, Position};
+use lsp_types::{notification::Notification as _, Position, Range};
 use vfs::{ChangeKind, FileId};
 
 use crate::{
-    notebook::offset_range,
     config::Config,
     dispatch::{NotificationDispatcher, RequestDispatcher},
     from_proto,
@@ -22,6 +21,7 @@ use crate::{
     handlers, lsp_ext,
     lsp_utils::{apply_document_changes, is_cancelled, notification_is, Progress},
     mem_docs::DocumentData,
+    notebook::offset_range,
     reload::{self, BuildDataProgress, ProjectWorkspaceProgress},
     Result,
 };
@@ -485,7 +485,7 @@ impl GlobalState {
                 let version = from_proto::vfs_path(&url)
                     .map(|path| self.mem_docs.get(&path).map(|it| it.version))
                     .unwrap_or_default();
-                    
+
                 self.send_notification::<lsp_types::notification::PublishDiagnostics>(
                     lsp_types::PublishDiagnosticsParams { uri: url, diagnostics, version },
                 );

@@ -228,15 +228,24 @@ fn read(path: &AbsPath) -> Option<Vec<u8>> {
             let mut result = "fn main() {\n".to_string();
             let text = fs::read_to_string(path).ok()?;
             let lines = text.split("\n").into_iter();
+            let mut comment = false; // anything that isn't rust should be treated as a comment
             for line in lines {
-                if !line.starts_with("```"){
-                    // result.push('\n');
-                    result.push_str(&(line.to_string()));
+                if line.starts_with("```rust") {
+                    comment = false;
+                    continue;
+                } else if line.starts_with("```") {
+                    comment = true;
+                    continue;
                 }
+                if comment {
+                    result.push_str("//")
+                }
+                result.push_str(&(line.to_string()));
+                result.push('\n')
             }
             result.push_str("}\n");
             dbg!(&result);
-            return Some(result.into_bytes())
+            return Some(result.into_bytes());
         }
     }
     std::fs::read(path).ok()

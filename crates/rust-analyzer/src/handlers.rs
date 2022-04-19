@@ -7,8 +7,6 @@ use std::{
     process::{self, Stdio},
 };
 
-
-
 use anyhow::Context;
 use ide::{
     AnnotationConfig, AssistKind, AssistResolveStrategy, FileId, FilePosition, FileRange,
@@ -25,7 +23,7 @@ use lsp_types::{
     NumberOrString, Position, PrepareRenameResponse, Range, RenameParams,
     SemanticTokensDeltaParams, SemanticTokensFullDeltaResult, SemanticTokensParams,
     SemanticTokensRangeParams, SemanticTokensRangeResult, SemanticTokensResult, SymbolInformation,
-    SymbolTag, TextDocumentIdentifier, Url, WorkspaceEdit, TextDocumentPositionParams,
+    SymbolTag, TextDocumentIdentifier, TextDocumentPositionParams, Url, WorkspaceEdit,
 };
 use project_model::{ManifestPath, ProjectWorkspace, TargetKind};
 use serde_json::json;
@@ -35,7 +33,6 @@ use vfs::AbsPathBuf;
 
 use crate::{
     cargo_target_spec::CargoTargetSpec,
-    notebook::{offset_range, offset_position},
     config::{RustfmtConfig, WorkspaceSymbolConfig},
     diff::diff,
     from_proto,
@@ -43,6 +40,7 @@ use crate::{
     line_index::LineEndings,
     lsp_ext::{self, PositionOrRange, ViewCrateGraphParams, WorkspaceSymbolParams},
     lsp_utils::{all_edits_are_disjoint, invalid_params_error},
+    notebook::{self, offset_position, offset_range},
     to_proto, LspError, Result,
 };
 
@@ -795,15 +793,20 @@ pub(crate) fn handle_completion(
     if let Some(fragment) = uri.fragment() {
         offset = snap.notebook.get_line_offset(fragment);
         let text_inter = offset_position(params.text_document_position.position, offset);
-        params.text_document_position = TextDocumentPositionParams{position: text_inter, text_document: TextDocumentIdentifier { uri }};
+        params.text_document_position = TextDocumentPositionParams {
+            position: text_inter,
+            text_document: TextDocumentIdentifier { uri },
+        };
     }
-    let new_file_position = from_proto::file_position(&snap, params.text_document_position.clone())?;
+    let new_file_position =
+        from_proto::file_position(&snap, params.text_document_position.clone())?;
 
     // Return none if a single colon character
     if let Some(ctx) = params.context {
         if ctx.trigger_character.as_deref() == Some(":") {
             let source_file = snap.analysis.parse(new_file_position.file_id)?;
-            let left_token = source_file.syntax().token_at_offset(new_file_position.offset).left_biased();
+            let left_token =
+                source_file.syntax().token_at_offset(new_file_position.offset).left_biased();
             match left_token {
                 Some(left_token) if left_token.kind() != T![:] => return Ok(None),
                 None => return Ok(None),
@@ -823,9 +826,20 @@ pub(crate) fn handle_completion(
     dbg!(&offset, &params.text_document_position);
     let new_items;
     if offset != 0 {
-        new_items = to_proto::completion_items_offset(&snap.config, &line_index, params.text_document_position, items, -offset);
+        new_items = to_proto::completion_items_offset(
+            &snap.config,
+            &line_index,
+            params.text_document_position,
+            items,
+            -offset,
+        );
     } else {
-        new_items = to_proto::completion_items(&snap.config, &line_index, params.text_document_position, items);
+        new_items = to_proto::completion_items(
+            &snap.config,
+            &line_index,
+            params.text_document_position,
+            items,
+        );
     }
 
     let completion_list = lsp_types::CompletionList { is_incomplete: true, items: new_items };
@@ -852,10 +866,10 @@ pub(crate) fn handle_completion_resolve(
 
     let resolve_data: lsp_ext::CompletionResolveData = serde_json::from_value(data)?;
     // if let Some(fragment) = resolve_data.position.text_document.uri.fragment() {
-        // let offset = snap.notebook.get_line_offset(fragment);
-        // resolve_data.position = TextDocumentPositionParams::new(resolve_data.position.text_document, offset_position(resolve_data.position.position, offset));
-        // resolve_data.position.position.line = 1;
-        // resolve_data.position.position.character = 2;
+    // let offset = snap.notebook.get_line_offset(fragment);
+    // resolve_data.position = TextDocumentPositionParams::new(resolve_data.position.text_document, offset_position(resolve_data.position.position, offset));
+    // resolve_data.position.position.line = 1;
+    // resolve_data.position.position.character = 2;
     // }
 
     let file_id = from_proto::file_id(&snap, &resolve_data.position.text_document.uri)?;
@@ -1208,6 +1222,11 @@ pub(crate) fn handle_code_lens(
     snap: GlobalStateSnapshot,
     params: lsp_types::CodeLensParams,
 ) -> Result<Option<Vec<CodeLens>>> {
+    dbg!(&params);
+    let mut offset = 0;
+    if let Some(fragment) = params.text_document.uri.fragment() {
+        offset = snap.notebook.get_line_offset(fragment);
+    }
     let _p = profile::span("handle_code_lens");
 
     let lens_config = snap.config.lens();
@@ -1345,6 +1364,7 @@ pub(crate) fn handle_inlay_hints(
     snap: GlobalStateSnapshot,
     params: InlayHintParams,
 ) -> Result<Option<Vec<InlayHint>>> {
+    dbg!(params);
     let _p = profile::span("handle_inlay_hints");
     let document_uri = &params.text_document.uri;
     let file_id = from_proto::file_id(&snap, document_uri)?;
@@ -1355,13 +1375,21 @@ pub(crate) fn handle_inlay_hints(
         params.range,
     )?;
     let inlay_hints_config = snap.config.inlay_hints();
-    Ok(Some(
-        snap.analysis
-            .inlay_hints(&inlay_hints_config, file_id, Some(range))?
-            .into_iter()
-            .map(|it| to_proto::inlay_hint(inlay_hints_config.render_colons, &line_index, it))
-            .collect(),
-    ))
+    let offset = match params.text_document.uri.fragment() {
+        Some(fragment) => snap.notebook.get_line_offset(fragment),
+        None => 0,
+    };
+    let mut hints: Vec<InlayHint> = snap
+        .analysis
+        .inlay_hints(&inlay_hints_config, file_id, Some(range))?
+        .into_iter()
+        .map(|it| to_proto::inlay_hint(inlay_hints_config.render_colons, &line_index, it))
+        .collect();
+    for hint in &mut hints {
+        hint.position = notebook::offset_position(hint.position, -offset)
+    }
+
+    Ok(Some(hints))
 }
 
 pub(crate) fn handle_call_hierarchy_prepare(

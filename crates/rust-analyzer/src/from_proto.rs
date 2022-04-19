@@ -11,7 +11,7 @@ use crate::{
     line_index::{LineIndex, OffsetEncoding},
     lsp_ext,
     lsp_utils::invalid_params_error,
-    Result,
+    notebook, Result,
 };
 
 pub(crate) fn abs_path(url: &lsp_types::Url) -> Result<AbsPathBuf> {
@@ -92,6 +92,11 @@ pub(crate) fn annotation(
     let data =
         code_lens.data.ok_or_else(|| invalid_params_error("code lens without data".to_string()))?;
     let resolve = from_json::<lsp_ext::CodeLensResolveData>("CodeLensResolveData", data)?;
+    // if snap.notebook.cells.len() > 0 {
+    //     let offset = snap.notebook.get_line_offset(fragment);
+    //     code_lens.
+    //     code_lens.range = notebook::offset_range(range, offset)
+    // }
 
     match resolve {
         lsp_ext::CodeLensResolveData::Impls(params) => {
