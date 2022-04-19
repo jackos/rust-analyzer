@@ -22,6 +22,7 @@ use crate::{
     global_state::GlobalStateSnapshot,
     line_index::{LineEndings, LineIndex, OffsetEncoding},
     lsp_ext,
+    notebook::offset_range,
     lsp_utils::invalid_params_error,
     semantic_tokens, Result,
 };
@@ -151,6 +152,15 @@ pub(crate) fn text_edit(line_index: &LineIndex, indel: Indel) -> lsp_types::Text
     lsp_types::TextEdit { range, new_text }
 }
 
+pub(crate) fn text_edit_offset(line_index: &LineIndex, indel: Indel, offset: i32) -> lsp_types::TextEdit {
+    let range = range(line_index, indel.delete);
+    let new_text = match line_index.endings {
+        LineEndings::Unix => indel.insert,
+        LineEndings::Dos => indel.insert.replace('\n', "\r\n"),
+    };
+    lsp_types::TextEdit { range: offset_range(range, offset), new_text }
+}
+
 pub(crate) fn completion_text_edit(
     line_index: &LineIndex,
     insert_replace_support: Option<lsp_types::Position>,
@@ -168,6 +178,25 @@ pub(crate) fn completion_text_edit(
     }
 }
 
+
+pub(crate) fn completion_text_edit_offset(
+    line_index: &LineIndex,
+    insert_replace_support: Option<lsp_types::Position>,
+    indel: Indel,
+    offset: i32,
+) -> lsp_types::CompletionTextEdit {
+    let text_edit = text_edit(line_index, indel);
+    match insert_replace_support {
+        Some(cursor_pos) => lsp_types::InsertReplaceEdit {
+            new_text: text_edit.new_text,
+            insert: offset_range(lsp_types::Range { start: text_edit.range.start, end: cursor_pos }, offset),
+            replace: offset_range(text_edit.range, offset),
+        }
+        .into(),
+        None => text_edit.into(),
+    }
+}
+
 pub(crate) fn snippet_text_edit(
     line_index: &LineIndex,
     is_snippet: bool,
@@ -178,6 +207,23 @@ pub(crate) fn snippet_text_edit(
         if is_snippet { Some(lsp_types::InsertTextFormat::SNIPPET) } else { None };
     lsp_ext::SnippetTextEdit {
         range: text_edit.range,
+        new_text: text_edit.new_text,
+        insert_text_format,
+        annotation_id: None,
+    }
+}
+
+pub(crate) fn snippet_text_edit_offset(
+    line_index: &LineIndex,
+    is_snippet: bool,
+    indel: Indel,
+    offset: i32,
+) -> lsp_ext::SnippetTextEdit {
+    let text_edit = text_edit(line_index, indel);
+    let insert_text_format =
+        if is_snippet { Some(lsp_types::InsertTextFormat::SNIPPET) } else { None };
+    lsp_ext::SnippetTextEdit {
+        range: offset_range(text_edit.range, offset),
         new_text: text_edit.new_text,
         insert_text_format,
         annotation_id: None,
@@ -216,8 +262,19 @@ pub(crate) fn completion_items(
     res
 }
 
-fn notebook_completion_item(){
-
+pub(crate) fn completion_items_offset(
+    config: &Config,
+    line_index: &LineIndex,
+    tdpp: lsp_types::TextDocumentPositionParams,
+    items: Vec<CompletionItem>,
+    offset: i32,
+) -> Vec<lsp_types::CompletionItem> {
+    let max_relevance = items.iter().map(|it| it.relevance().score()).max().unwrap_or_default();
+    let mut res = Vec::with_capacity(items.len());
+    for item in items {
+        completion_item_offset(&mut res, config, line_index, &tdpp, max_relevance, item, offset)
+    }
+    res
 }
 
 fn completion_item(
@@ -252,6 +309,127 @@ fn completion_item(
             } else {
                 assert!(source_range.intersect(indel.delete).is_none());
                 let text_edit = self::text_edit(line_index, indel.clone());
+                additional_text_edits.push(text_edit);
+            }
+        }
+        text_edit.unwrap()
+    };
+
+    let mut lsp_item = lsp_types::CompletionItem {
+        label: item.label().to_string(),
+        detail: item.detail().map(|it| it.to_string()),
+        filter_text: Some(item.lookup().to_string()),
+        kind: Some(completion_item_kind(item.kind())),
+        text_edit: Some(text_edit),
+        additional_text_edits: Some(additional_text_edits),
+        documentation: item.documentation().map(documentation),
+        deprecated: Some(item.deprecated()),
+        ..Default::default()
+    };
+
+    set_score(&mut lsp_item, max_relevance, item.relevance());
+
+    if item.deprecated() {
+        lsp_item.tags = Some(vec![lsp_types::CompletionItemTag::DEPRECATED])
+    }
+
+    if item.trigger_call_info() && config.client_commands().trigger_parameter_hints {
+        lsp_item.command = Some(command::trigger_parameter_hints());
+    }
+
+    if item.is_snippet() {
+        lsp_item.insert_text_format = Some(lsp_types::InsertTextFormat::SNIPPET);
+    }
+    if config.completion().enable_imports_on_the_fly {
+        if let imports @ [_, ..] = item.imports_to_add() {
+            let imports: Vec<_> = imports
+                .iter()
+                .filter_map(|import_edit| {
+                    let import_path = &import_edit.import_path;
+                    let import_name = import_path.segments().last()?;
+                    Some(lsp_ext::CompletionImport {
+                        full_import_path: import_path.to_string(),
+                        imported_name: import_name.to_string(),
+                    })
+                })
+                .collect();
+            if !imports.is_empty() {
+                let data = lsp_ext::CompletionResolveData { position: tdpp.clone(), imports };
+                lsp_item.data = Some(to_value(data).unwrap());
+            }
+        }
+    }
+
+    if let Some((mutability, relevance)) = item.ref_match() {
+        let mut lsp_item_with_ref = lsp_item.clone();
+        set_score(&mut lsp_item_with_ref, max_relevance, relevance);
+        lsp_item_with_ref.label =
+            format!("&{}{}", mutability.as_keyword_for_ref(), lsp_item_with_ref.label);
+        if let Some(it) = &mut lsp_item_with_ref.text_edit {
+            let new_text = match it {
+                lsp_types::CompletionTextEdit::Edit(it) => &mut it.new_text,
+                lsp_types::CompletionTextEdit::InsertAndReplace(it) => &mut it.new_text,
+            };
+            *new_text = format!("&{}{}", mutability.as_keyword_for_ref(), new_text);
+        }
+
+        acc.push(lsp_item_with_ref);
+    };
+
+    acc.push(lsp_item);
+
+    fn set_score(
+        res: &mut lsp_types::CompletionItem,
+        max_relevance: u32,
+        relevance: CompletionRelevance,
+    ) {
+        if relevance.is_relevant() && relevance.score() == max_relevance {
+            res.preselect = Some(true);
+        }
+        // The relevance needs to be inverted to come up with a sort score
+        // because the client will sort ascending.
+        let sort_score = relevance.score() ^ 0xFF_FF_FF_FF;
+        // Zero pad the string to ensure values can be properly sorted
+        // by the client. Hex format is used because it is easier to
+        // visually compare very large values, which the sort text
+        // tends to be since it is the opposite of the score.
+        res.sort_text = Some(format!("{:08x}", sort_score));
+    }
+}
+
+fn completion_item_offset(
+    acc: &mut Vec<lsp_types::CompletionItem>,
+    config: &Config,
+    line_index: &LineIndex,
+    tdpp: &lsp_types::TextDocumentPositionParams,
+    max_relevance: u32,
+    item: CompletionItem,
+    offset: i32,
+) {
+    let mut additional_text_edits = Vec::new();
+
+    // LSP does not allow arbitrary edits in completion, so we have to do a
+    // non-trivial mapping here.
+    let text_edit = {
+        let mut text_edit = None;
+        let source_range = item.source_range();
+        for indel in item.text_edit().iter() {
+            if indel.delete.contains_range(source_range) {
+                let insert_replace_support = config.insert_replace_support().then(|| tdpp.position);
+                text_edit = Some(if indel.delete == source_range {
+                    self::completion_text_edit_offset(line_index, insert_replace_support, indel.clone(), offset)
+                } else {
+                    assert!(source_range.end() == indel.delete.end());
+                    let range1 = TextRange::new(indel.delete.start(), source_range.start());
+                    let range2 = source_range;
+                    let indel1 = Indel::replace(range1, String::new());
+                    let indel2 = Indel::replace(range2, indel.insert.clone());
+                    additional_text_edits.push(self::text_edit_offset(line_index, indel1, offset));
+                    self::completion_text_edit_offset(line_index, insert_replace_support, indel2, offset)
+                })
+            } else {
+                assert!(source_range.intersect(indel.delete).is_none());
+                let text_edit = self::text_edit_offset(line_index, indel.clone(), offset);
                 additional_text_edits.push(text_edit);
             }
         }

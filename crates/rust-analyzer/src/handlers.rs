@@ -791,32 +791,25 @@ pub(crate) fn handle_completion(
     let _p = profile::span("handle_completion");
     let uri = params.text_document_position.text_document.uri.clone();
     let original_position = params.text_document_position.clone();
+    let mut offset = 0;
     if let Some(fragment) = uri.fragment() {
-        let offset = snap.notebook.get_line_offset(fragment);
+        offset = snap.notebook.get_line_offset(fragment);
         let text_inter = offset_position(params.text_document_position.position, offset);
         params.text_document_position = TextDocumentPositionParams{position: text_inter, text_document: TextDocumentIdentifier { uri }};
-        // params.text_document_position.position.line = 0;
-        // params.text_document_position.position.character = 2;
     }
-    let new_file_position = from_proto::file_position(&snap, params.text_document_position)?;
-    let original_file_position = from_proto::file_position(&snap, original_position.clone())?;
-    let completion_triggered_after_single_colon = {
-        let mut res = false;
-        if let Some(ctx) = params.context {
-            if ctx.trigger_character.as_deref() == Some(":") {
-                let source_file = snap.analysis.parse(new_file_position.file_id)?;
-                let left_token =
-                    source_file.syntax().token_at_offset(new_file_position.offset).left_biased();
-                match left_token {
-                    Some(left_token) => res = left_token.kind() == T![:],
-                    None => res = true,
-                }
+    let new_file_position = from_proto::file_position(&snap, params.text_document_position.clone())?;
+
+    // Return none if a single colon character
+    if let Some(ctx) = params.context {
+        if ctx.trigger_character.as_deref() == Some(":") {
+            let source_file = snap.analysis.parse(new_file_position.file_id)?;
+            let left_token = source_file.syntax().token_at_offset(new_file_position.offset).left_biased();
+            match left_token {
+                Some(left_token) if left_token.kind() != T![:] => return Ok(None),
+                None => return Ok(None),
+                _ => (),
             }
         }
-        res
-    };
-    if completion_triggered_after_single_colon {
-        return Ok(None);
     }
 
     let completion_config = &snap.config.completion();
@@ -824,35 +817,18 @@ pub(crate) fn handle_completion(
         None => return Ok(None),
         Some(items) => items,
     };
+
     let line_index = snap.file_line_index(new_file_position.file_id)?;
 
-    // let pos = TextDocumentPositionParams::new(TextDocumentIdentifier { uri:  params.text_document_position.text_document.uri}, Position::new(0, 2));
-    let items =
-        to_proto::completion_items(&snap.config, &line_index, original_position, items);
+    dbg!(&offset, &params.text_document_position);
+    let new_items;
+    if offset != 0 {
+        new_items = to_proto::completion_items_offset(&snap.config, &line_index, params.text_document_position, items, -offset);
+    } else {
+        new_items = to_proto::completion_items(&snap.config, &line_index, params.text_document_position, items);
+    }
 
-    // for item in &mut items {
-    //     if let Some(a) = &mut item.text_edit {
-    //         dbg!(&a);
-    //         if let lsp_types::CompletionTextEdit::Edit(e) = a {
-    //             e.range.start.character = 2;
-    //             e.range.end.character = 2;
-    //             e.range.start.line = 1;
-    //             e.range.end.line = 1;
-    //         }
-    //         if let lsp_types::CompletionTextEdit::InsertAndReplace(e) = a {
-    //             e.insert.start.character = 2;
-    //             e.insert.end.character = 2;
-    //             e.replace.start.character = 2;
-    //             e.replace.end.character = 2;
-    //             e.insert.start.line = 1;
-    //             e.insert.end.line = 1;
-    //             e.replace.start.line= 1;
-    //             e.replace.end.line = 1;
-    //         }
-    //     }
-    // }
-
-    let completion_list = lsp_types::CompletionList { is_incomplete: true, items };
+    let completion_list = lsp_types::CompletionList { is_incomplete: true, items: new_items };
     Ok(Some(completion_list.into()))
 }
 

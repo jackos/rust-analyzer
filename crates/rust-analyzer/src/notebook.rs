@@ -55,7 +55,7 @@ pub(crate) fn offset_position(position: Position, offset: i32) -> Position {
 
 
 pub(crate) fn offset_range(range: Range, offset: i32) -> Range {
-    let start = Position::new(range.start.line + offset as u32, range.start.character);
-    let end = Position::new(range.end.line + offset as u32, range.end.character);
+    let start = Position::new((range.start.line as i32 + offset) as u32, range.start.character);
+    let end = Position::new((range.end.line as i32 + offset) as u32, range.end.character);
     Range::new(start, end)
 }
