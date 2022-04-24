@@ -8,11 +8,11 @@ use crate::{
 };
 
 pub(crate) fn complete_vis(acc: &mut Completions, ctx: &CompletionContext) {
-    let (is_absolute_path, qualifier, has_in_token) = match ctx.path_context {
+    let (&is_absolute_path, qualifier, &has_in_token) = match &ctx.path_context {
         Some(PathCompletionCtx {
             kind: Some(PathKind::Vis { has_in_token }),
             is_absolute_path,
-            ref qualifier,
+            qualifier,
             ..
         }) => (is_absolute_path, qualifier, has_in_token),
         _ => return,
@@ -45,7 +45,7 @@ pub(crate) fn complete_vis(acc: &mut Completions, ctx: &CompletionContext) {
                 cov_mark::hit!(kw_completion_in);
                 acc.add_keyword(ctx, "in");
             }
-            ["self", "super", "crate"].into_iter().for_each(|kw| acc.add_keyword(ctx, kw));
+            acc.add_nameref_keywords(ctx);
         }
         _ => {}
     }

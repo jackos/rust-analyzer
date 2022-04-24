@@ -50,6 +50,7 @@ pub(super) enum PathKind {
     Type,
     Attr { kind: AttrKind, annotated_item_kind: Option<SyntaxKind> },
     Derive,
+    // This should be removed in favor of `has_macro_bang` in PathCompletionContext
     Mac,
     Pat,
     Vis { has_in_token: bool },
@@ -100,6 +101,30 @@ pub(super) enum LifetimeContext {
     LabelDef,
 }
 
+#[derive(Debug)]
+#[allow(dead_code)]
+pub(super) enum NameContext {
+    Const,
+    ConstParam,
+    Enum,
+    Function,
+    IdentPat,
+    MacroDef,
+    MacroRules,
+    /// Fake node
+    Module(ast::Module),
+    RecordField,
+    Rename,
+    SelfParam,
+    Static,
+    Struct,
+    Trait,
+    TypeAlias,
+    TypeParam,
+    Union,
+    Variant,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum ParamKind {
     Function(ast::Fn),
@@ -124,7 +149,11 @@ pub(crate) struct CompletionContext<'a> {
     pub(super) krate: hir::Crate,
     /// The module of the `scope`.
     pub(super) module: hir::Module,
+
+    /// The expected name of what we are completing.
+    /// This is usually the parameter name of the function argument we are completing.
     pub(super) expected_name: Option<NameOrNameRef>,
+    /// The expected type of what we are completing.
     pub(super) expected_type: Option<Type>,
 
     /// The parent function of the cursor position if it exists.
@@ -133,6 +162,7 @@ pub(crate) struct CompletionContext<'a> {
     pub(super) impl_def: Option<ast::Impl>,
     /// The NameLike under the cursor in the original file if it exists.
     pub(super) name_syntax: Option<ast::NameLike>,
+    /// Are we completing inside a let statement with a missing semicolon?
     pub(super) incomplete_let: bool,
 
     pub(super) completion_location: Option<ImmediateLocation>,
@@ -140,6 +170,7 @@ pub(crate) struct CompletionContext<'a> {
     pub(super) fake_attribute_under_caret: Option<ast::Attr>,
     pub(super) previous_token: Option<SyntaxToken>,
 
+    pub(super) name_ctx: Option<NameContext>,
     pub(super) lifetime_ctx: Option<LifetimeContext>,
     pub(super) pattern_ctx: Option<PatternContext>,
     pub(super) path_context: Option<PathCompletionCtx>,
@@ -164,6 +195,14 @@ impl<'a> CompletionContext<'a> {
             _ if kind.is_keyword() => self.original_token.text_range(),
             _ => TextRange::empty(self.position.offset),
         }
+    }
+
+    pub(crate) fn name_ref(&self) -> Option<&ast::NameRef> {
+        self.name_syntax.as_ref().and_then(ast::NameLike::as_name_ref)
+    }
+
+    pub(crate) fn lifetime(&self) -> Option<&ast::Lifetime> {
+        self.name_syntax.as_ref().and_then(ast::NameLike::as_lifetime)
     }
 
     pub(crate) fn previous_token_is(&self, kind: SyntaxKind) -> bool {
@@ -197,7 +236,7 @@ impl<'a> CompletionContext<'a> {
     }
 
     pub(crate) fn expects_variant(&self) -> bool {
-        matches!(self.completion_location, Some(ImmediateLocation::Variant))
+        matches!(self.name_ctx, Some(NameContext::Variant))
     }
 
     pub(crate) fn expects_non_trait_assoc_item(&self) -> bool {
@@ -221,10 +260,8 @@ impl<'a> CompletionContext<'a> {
     }
 
     pub(crate) fn expect_field(&self) -> bool {
-        matches!(
-            self.completion_location,
-            Some(ImmediateLocation::RecordField | ImmediateLocation::TupleField)
-        )
+        matches!(self.completion_location, Some(ImmediateLocation::TupleField))
+            || matches!(self.name_ctx, Some(NameContext::RecordField))
     }
 
     pub(crate) fn has_impl_or_trait_prev_sibling(&self) -> bool {
@@ -254,13 +291,9 @@ impl<'a> CompletionContext<'a> {
             )
             || matches!(
                 self.completion_location,
-                Some(
-                    ImmediateLocation::ModDeclaration(_)
-                        | ImmediateLocation::RecordPat(_)
-                        | ImmediateLocation::RecordExpr(_)
-                        | ImmediateLocation::Rename
-                )
+                Some(ImmediateLocation::RecordPat(_) | ImmediateLocation::RecordExpr(_))
             )
+            || matches!(self.name_ctx, Some(NameContext::Module(_) | NameContext::Rename))
     }
 
     pub(crate) fn expects_expression(&self) -> bool {
@@ -405,6 +438,7 @@ impl<'a> CompletionContext<'a> {
         let scope = sema.scope_at_offset(&token.parent()?, offset)?;
         let krate = scope.krate();
         let module = scope.module();
+
         let mut locals = FxHashMap::default();
         scope.process_all_names(&mut |name, scope| {
             if let ScopeDef::Local(local) = scope {
@@ -429,6 +463,7 @@ impl<'a> CompletionContext<'a> {
             name_syntax: None,
             lifetime_ctx: None,
             pattern_ctx: None,
+            name_ctx: None,
             completion_location: None,
             prev_sibling: None,
             fake_attribute_under_caret: None,
@@ -447,8 +482,9 @@ impl<'a> CompletionContext<'a> {
         Some(ctx)
     }
 
-    /// Do the attribute expansion at the current cursor position for both original file and fake file
-    /// as long as possible. As soon as one of the two expansions fail we stop to stay in sync.
+    /// Expand attributes and macro calls at the current cursor position for both the original file
+    /// and fake file repeatedly. As soon as one of the two expansions fail we stop so the original
+    /// and speculative states stay in sync.
     fn expand_and_fill(
         &mut self,
         mut original_file: SyntaxNode,
@@ -469,7 +505,9 @@ impl<'a> CompletionContext<'a> {
                 ),
                 |(a, b)| parent_item(a).zip(parent_item(b)),
             );
-            for (actual_item, item_with_fake_ident) in ancestor_items {
+
+            // first try to expand attributes as these are always the outermost macro calls
+            'ancestors: for (actual_item, item_with_fake_ident) in ancestor_items {
                 match (
                     self.sema.expand_attr_macro(&actual_item),
                     self.sema.speculative_expand_attr_macro(
@@ -478,12 +516,14 @@ impl<'a> CompletionContext<'a> {
                         fake_ident_token.clone(),
                     ),
                 ) {
-                    // maybe parent items have attributes
-                    (None, None) => (),
+                    // maybe parent items have attributes, so continue walking the ancestors
+                    (None, None) => continue 'ancestors,
                     // successful expansions
                     (Some(actual_expansion), Some((fake_expansion, fake_mapped_token))) => {
                         let new_offset = fake_mapped_token.text_range().start();
                         if new_offset > actual_expansion.text_range().end() {
+                            // offset outside of bounds from the original expansion,
+                            // stop here to prevent problems from happening
                             break 'expansion;
                         }
                         original_file = actual_expansion;
@@ -496,13 +536,15 @@ impl<'a> CompletionContext<'a> {
                     _ => break 'expansion,
                 }
             }
+
+            // No attributes have been expanded, so look for macro_call! token trees or derive token trees
             let orig_tt = match find_node_at_offset::<ast::TokenTree>(&original_file, offset) {
                 Some(it) => it,
-                None => break,
+                None => break 'expansion,
             };
             let spec_tt = match find_node_at_offset::<ast::TokenTree>(&speculative_file, offset) {
                 Some(it) => it,
-                None => break,
+                None => break 'expansion,
             };
 
             // Expand pseudo-derive expansion
@@ -510,7 +552,7 @@ impl<'a> CompletionContext<'a> {
                 orig_tt.syntax().parent().and_then(ast::Meta::cast).and_then(|it| it.parent_attr()),
                 spec_tt.syntax().parent().and_then(ast::Meta::cast).and_then(|it| it.parent_attr()),
             ) {
-                match (
+                if let (Some(actual_expansion), Some((fake_expansion, fake_mapped_token))) = (
                     self.sema.expand_derive_as_pseudo_attr_macro(&orig_attr),
                     self.sema.speculative_expand_derive_as_pseudo_attr_macro(
                         &orig_attr,
@@ -518,17 +560,15 @@ impl<'a> CompletionContext<'a> {
                         fake_ident_token.clone(),
                     ),
                 ) {
-                    // Clearly not a derive macro
-                    (None, None) => (),
-                    // successful expansions
-                    (Some(actual_expansion), Some((fake_expansion, fake_mapped_token))) => {
-                        let new_offset = fake_mapped_token.text_range().start();
-                        derive_ctx = Some((actual_expansion, fake_expansion, new_offset));
-                        break 'expansion;
-                    }
-                    // exactly one expansion failed, inconsistent state so stop expanding completely
-                    _ => break 'expansion,
+                    derive_ctx = Some((
+                        actual_expansion,
+                        fake_expansion,
+                        fake_mapped_token.text_range().start(),
+                        orig_attr,
+                    ));
                 }
+                // at this point we won't have any more successful expansions, so stop
+                break 'expansion;
             }
 
             // Expand fn-like macro calls
@@ -539,12 +579,14 @@ impl<'a> CompletionContext<'a> {
                 let mac_call_path0 = actual_macro_call.path().as_ref().map(|s| s.syntax().text());
                 let mac_call_path1 =
                     macro_call_with_fake_ident.path().as_ref().map(|s| s.syntax().text());
+
+                // inconsistent state, stop expanding
                 if mac_call_path0 != mac_call_path1 {
-                    break;
+                    break 'expansion;
                 }
                 let speculative_args = match macro_call_with_fake_ident.token_tree() {
                     Some(tt) => tt,
-                    None => break,
+                    None => break 'expansion,
                 };
 
                 match (
@@ -559,24 +601,30 @@ impl<'a> CompletionContext<'a> {
                     (Some(actual_expansion), Some((fake_expansion, fake_mapped_token))) => {
                         let new_offset = fake_mapped_token.text_range().start();
                         if new_offset > actual_expansion.text_range().end() {
-                            break;
+                            // offset outside of bounds from the original expansion,
+                            // stop here to prevent problems from happening
+                            break 'expansion;
                         }
                         original_file = actual_expansion;
                         speculative_file = fake_expansion;
                         fake_ident_token = fake_mapped_token;
                         offset = new_offset;
-                        continue;
+                        continue 'expansion;
                     }
-                    _ => break,
+                    // at least on expansion failed, we won't have anything to expand from this point
+                    // onwards so break out
+                    _ => break 'expansion,
                 }
             }
 
-            break;
+            // none of our states have changed so stop the loop
+            break 'expansion;
         }
 
         self.fill(&original_file, speculative_file, offset, derive_ctx);
     }
 
+    /// Calculate the expected type and name of the cursor position.
     fn expected_type_and_name(&self) -> (Option<Type>, Option<NameOrNameRef>) {
         let mut node = match self.token.parent() {
             Some(it) => it,
@@ -713,12 +761,14 @@ impl<'a> CompletionContext<'a> {
         }
     }
 
+    /// Fill the completion context, this is what does semantic reasoning about the surrounding context
+    /// of the completion location.
     fn fill(
         &mut self,
         original_file: &SyntaxNode,
         file_with_fake_ident: SyntaxNode,
         offset: TextSize,
-        derive_ctx: Option<(SyntaxNode, SyntaxNode, TextSize)>,
+        derive_ctx: Option<(SyntaxNode, SyntaxNode, TextSize, ast::Attr)>,
     ) {
         let fake_ident_token = file_with_fake_ident.token_at_offset(offset).right_biased().unwrap();
         let syntax_element = NodeOrToken::Token(fake_ident_token);
@@ -742,16 +792,14 @@ impl<'a> CompletionContext<'a> {
         (self.expected_type, self.expected_name) = self.expected_type_and_name();
 
         // Overwrite the path kind for derives
-        if let Some((original_file, file_with_fake_ident, offset)) = derive_ctx {
-            let attr = self
+        if let Some((original_file, file_with_fake_ident, offset, origin_attr)) = derive_ctx {
+            self.existing_derives = self
                 .sema
-                .token_ancestors_with_macros(self.token.clone())
-                .take_while(|it| it.kind() != SOURCE_FILE && it.kind() != MODULE)
-                .find_map(ast::Attr::cast);
-            if let Some(attr) = &attr {
-                self.existing_derives =
-                    self.sema.resolve_derive_macro(attr).into_iter().flatten().flatten().collect();
-            }
+                .resolve_derive_macro(&origin_attr)
+                .into_iter()
+                .flatten()
+                .flatten()
+                .collect();
 
             if let Some(ast::NameLike::NameRef(name_ref)) =
                 find_node_at_offset(&file_with_fake_ident, offset)
@@ -801,7 +849,12 @@ impl<'a> CompletionContext<'a> {
                 }
             }
             ast::NameLike::Name(name) => {
-                self.pattern_ctx = Self::classify_name(&self.sema, original_file, name);
+                if let Some((name_ctx, pat_ctx)) =
+                    Self::classify_name(&self.sema, original_file, name)
+                {
+                    self.pattern_ctx = pat_ctx;
+                    self.name_ctx = Some(name_ctx);
+                }
             }
         }
     }
@@ -834,17 +887,44 @@ impl<'a> CompletionContext<'a> {
         _sema: &Semantics<RootDatabase>,
         original_file: &SyntaxNode,
         name: ast::Name,
-    ) -> Option<PatternContext> {
-        let bind_pat = name.syntax().parent().and_then(ast::IdentPat::cast)?;
-        let is_name_in_field_pat = bind_pat
-            .syntax()
-            .parent()
-            .and_then(ast::RecordPatField::cast)
-            .map_or(false, |pat_field| pat_field.name_ref().is_none());
-        if is_name_in_field_pat {
-            return None;
-        }
-        Some(pattern_context_for(original_file, bind_pat.into()))
+    ) -> Option<(NameContext, Option<PatternContext>)> {
+        let parent = name.syntax().parent()?;
+        let mut pat_ctx = None;
+        let name_ctx = match_ast! {
+            match parent {
+                ast::Const(_) => NameContext::Const,
+                ast::ConstParam(_) => NameContext::ConstParam,
+                ast::Enum(_) => NameContext::Enum,
+                ast::Fn(_) => NameContext::Function,
+                ast::IdentPat(bind_pat) => {
+                    let is_name_in_field_pat = bind_pat
+                        .syntax()
+                        .parent()
+                        .and_then(ast::RecordPatField::cast)
+                        .map_or(false, |pat_field| pat_field.name_ref().is_none());
+                    if !is_name_in_field_pat {
+                        pat_ctx = Some(pattern_context_for(original_file, bind_pat.into()));
+                    }
+
+                    NameContext::IdentPat
+                },
+                ast::MacroDef(_) => NameContext::MacroDef,
+                ast::MacroRules(_) => NameContext::MacroRules,
+                ast::Module(module) => NameContext::Module(module),
+                ast::RecordField(_) => NameContext::RecordField,
+                ast::Rename(_) => NameContext::Rename,
+                ast::SelfParam(_) => NameContext::SelfParam,
+                ast::Static(_) => NameContext::Static,
+                ast::Struct(_) => NameContext::Struct,
+                ast::Trait(_) => NameContext::Trait,
+                ast::TypeAlias(_) => NameContext::TypeAlias,
+                ast::TypeParam(_) => NameContext::TypeParam,
+                ast::Union(_) => NameContext::Union,
+                ast::Variant(_) => NameContext::Variant,
+                _ => return None,
+            }
+        };
+        Some((name_ctx, pat_ctx))
     }
 
     fn classify_name_ref(
@@ -1016,6 +1096,7 @@ fn pattern_context_for(original_file: &SyntaxNode, pat: ast::Pat) -> PatternCont
     }
 }
 
+/// Attempts to find `node` inside `syntax` via `node`'s text range.
 fn find_node_in_file<N: AstNode>(syntax: &SyntaxNode, node: &N) -> Option<N> {
     let syntax_range = syntax.text_range();
     let range = node.syntax().text_range();
@@ -1023,7 +1104,8 @@ fn find_node_in_file<N: AstNode>(syntax: &SyntaxNode, node: &N) -> Option<N> {
     syntax.covering_element(intersection).ancestors().find_map(N::cast)
 }
 
-/// Compensates for the offset introduced by the fake ident
+/// Attempts to find `node` inside `syntax` via `node`'s text range while compensating
+/// for the offset introduced by the fake ident.
 /// This is wrong if `node` comes before the insertion point! Use `find_node_in_file` instead.
 fn find_node_in_file_compensated<N: AstNode>(syntax: &SyntaxNode, node: &N) -> Option<N> {
     let syntax_range = syntax.text_range();
@@ -1092,6 +1174,7 @@ const OP_TRAIT_LANG_NAMES: &[&str] = &[
     "shr",
     "sub",
 ];
+
 #[cfg(test)]
 mod tests {
     use expect_test::{expect, Expect};

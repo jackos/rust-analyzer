@@ -182,7 +182,7 @@ impl GlobalState {
         let mut fs_changes = Vec::new();
         // A file was added or deleted
         let mut has_structure_changes = false;
-        
+
         let (change, changed_files) = {
             let mut change = Change::new();
             let (vfs, line_endings_map) = &mut *self.vfs.write();
@@ -195,7 +195,8 @@ impl GlobalState {
                 if let Some(path) = vfs.file_path(file.file_id).as_path() {
                     let path = path.to_path_buf();
                     if reload::should_refresh_for_change(&path, file.change_kind) {
-                        self.fetch_workspaces_queue.request_op();
+                        self.fetch_workspaces_queue
+                            .request_op(format!("vfs file change: {}", path.display()));
                     }
                     fs_changes.push((path, file.change_kind));
                     if file.is_created_or_deleted() {

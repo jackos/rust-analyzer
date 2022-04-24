@@ -116,7 +116,6 @@ impl Entry {
     ///
     /// See [`Directories::contains_file`].
     pub fn contains_file(&self, path: &AbsPath) -> bool {
-
         match self {
             Entry::Files(files) => files.iter().any(|it| it == path),
             Entry::Directories(dirs) => dirs.contains_file(path),
