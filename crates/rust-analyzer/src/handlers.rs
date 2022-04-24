@@ -798,6 +798,7 @@ pub(crate) fn handle_completion(
         // snap.notebook.add_lines_to_position(&mut params.text_document_position.position, fragment);
         offset = snap.notebook.get_line_offset(fragment);
         let text_inter = offset_position(params.text_document_position.position, offset as i32);
+        dbg!(text_inter);
         params.text_document_position = TextDocumentPositionParams {
             position: text_inter,
             text_document: TextDocumentIdentifier { uri },

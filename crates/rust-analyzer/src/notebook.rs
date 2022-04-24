@@ -33,13 +33,12 @@ impl Notebook {
 
     pub fn get_line_offset(&self, fragment: &str) -> u32 {
         let index: i16 = fragment[2..fragment.len()].parse().unwrap();
-        let sum: usize = self
-            .fragments
-            .clone()
-            .into_iter()
-            .filter(|x| x.0 < index)
-            .map(|x| x.1.lines().count())
-            .sum();
+        let mut sum = 0;
+        for fragment in &self.fragments {
+            if fragment.0 < &index {
+                sum += fragment.1.split('\n').count();
+            }
+        }
         sum as u32
     }
 

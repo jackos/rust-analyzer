@@ -2,7 +2,7 @@ import * as lc from 'vscode-languageclient/node';
 import * as vscode from 'vscode';
 import * as ra from '../src/lsp_ext';
 import * as Is from 'vscode-languageclient/lib/common/utils/is';
-import { addLinesPosition, addLinesRange, assert } from './util';
+import { assert } from './util';
 import { WorkspaceEdit } from 'vscode';
 import { Workspace } from './ctx';
 

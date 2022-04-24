@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 
-import { addLinesRange, assert } from './util';
+import { assert } from './util';
 
 export async function applySnippetWorkspaceEdit(edit: vscode.WorkspaceEdit) {
     if (edit.entries().length === 1) {
@@ -14,7 +14,7 @@ export async function applySnippetWorkspaceEdit(edit: vscode.WorkspaceEdit) {
         if (editor) await editor.edit((builder) => {
             for (const indel of edits) {
                 assert(!parseSnippet(indel.newText), `bad ws edit: snippet received with multiple edits: ${JSON.stringify(edit)}`);
-                builder.replace(addLinesRange(indel.range, 1), indel.newText);
+                builder.replace(indel.range, indel.newText);
             }
         });
     }
@@ -48,9 +48,9 @@ export async function applySnippetTextEdits(editor: vscode.TextEditor, edits: vs
                     new vscode.Position(startLine, startColumn),
                     new vscode.Position(startLine, endColumn),
                 ));
-                builder.replace(addLinesRange(indel.range, 1), newText);
+                builder.replace(indel.range, newText);
             } else {
-                builder.replace(addLinesRange(indel.range, 1), indel.newText);
+                builder.replace(indel.range, indel.newText);
             }
             lineDelta += countLines(indel.newText) - (indel.range.end.line - indel.range.start.line + 1);
         }
