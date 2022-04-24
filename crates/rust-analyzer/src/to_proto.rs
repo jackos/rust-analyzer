@@ -22,8 +22,8 @@ use crate::{
     global_state::GlobalStateSnapshot,
     line_index::{LineEndings, LineIndex, OffsetEncoding},
     lsp_ext,
-    notebook::offset_range,
     lsp_utils::invalid_params_error,
+    notebook::offset_range,
     semantic_tokens, Result,
 };
 
@@ -152,13 +152,17 @@ pub(crate) fn text_edit(line_index: &LineIndex, indel: Indel) -> lsp_types::Text
     lsp_types::TextEdit { range, new_text }
 }
 
-pub(crate) fn text_edit_offset(line_index: &LineIndex, indel: Indel, offset: i32) -> lsp_types::TextEdit {
-    let range = range(line_index, indel.delete);
+pub(crate) fn text_edit_offset(
+    line_index: &LineIndex,
+    indel: Indel,
+    offset: i32,
+) -> lsp_types::TextEdit {
+    let range = offset_range(range(line_index, indel.delete), offset);
     let new_text = match line_index.endings {
         LineEndings::Unix => indel.insert,
         LineEndings::Dos => indel.insert.replace('\n', "\r\n"),
     };
-    lsp_types::TextEdit { range: offset_range(range, offset), new_text }
+    lsp_types::TextEdit { range, new_text }
 }
 
 pub(crate) fn completion_text_edit(
@@ -178,7 +182,6 @@ pub(crate) fn completion_text_edit(
     }
 }
 
-
 pub(crate) fn completion_text_edit_offset(
     line_index: &LineIndex,
     insert_replace_support: Option<lsp_types::Position>,
@@ -186,10 +189,14 @@ pub(crate) fn completion_text_edit_offset(
     offset: i32,
 ) -> lsp_types::CompletionTextEdit {
     let text_edit = text_edit(line_index, indel);
+    dbg!(offset);
     match insert_replace_support {
         Some(cursor_pos) => lsp_types::InsertReplaceEdit {
             new_text: text_edit.new_text,
-            insert: offset_range(lsp_types::Range { start: text_edit.range.start, end: cursor_pos }, offset),
+            insert: offset_range(
+                lsp_types::Range { start: text_edit.range.start, end: cursor_pos },
+                offset,
+            ),
             replace: offset_range(text_edit.range, offset),
         }
         .into(),
@@ -417,7 +424,12 @@ fn completion_item_offset(
             if indel.delete.contains_range(source_range) {
                 let insert_replace_support = config.insert_replace_support().then(|| tdpp.position);
                 text_edit = Some(if indel.delete == source_range {
-                    self::completion_text_edit_offset(line_index, insert_replace_support, indel.clone(), offset)
+                    self::completion_text_edit_offset(
+                        line_index,
+                        insert_replace_support,
+                        indel.clone(),
+                        offset,
+                    )
                 } else {
                     assert!(source_range.end() == indel.delete.end());
                     let range1 = TextRange::new(indel.delete.start(), source_range.start());
@@ -425,7 +437,12 @@ fn completion_item_offset(
                     let indel1 = Indel::replace(range1, String::new());
                     let indel2 = Indel::replace(range2, indel.insert.clone());
                     additional_text_edits.push(self::text_edit_offset(line_index, indel1, offset));
-                    self::completion_text_edit_offset(line_index, insert_replace_support, indel2, offset)
+                    self::completion_text_edit_offset(
+                        line_index,
+                        insert_replace_support,
+                        indel2,
+                        offset,
+                    )
                 })
             } else {
                 assert!(source_range.intersect(indel.delete).is_none());

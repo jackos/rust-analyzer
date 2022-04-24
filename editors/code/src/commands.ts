@@ -724,7 +724,6 @@ export function resolveCodeAction(ctx: Ctx): Cmd {
     return async (params: lc.CodeAction) => {
         params.command = undefined;
         const item = await client.sendRequest(lc.CodeActionResolveRequest.type, params);
-        console.log(item);
         if (!item.edit) {
             return;
         }

@@ -43,7 +43,7 @@ pub mod loader;
 mod path_interner;
 mod vfs_path;
 
-use std::{fmt, mem};
+use std::{fmt, io::Read, mem};
 
 use crate::path_interner::PathInterner;
 
@@ -162,10 +162,13 @@ impl Vfs {
         //         if ext == "md" {
         //             let new_contents = String::from("fn main() {");
 
-                    // dbg!(file_id, x_string);
+        // dbg!(file_id, x_string);
         //         }
         //     }
         // }
+        if let Some(s) = &contents {
+            dbg!(String::from_utf8_lossy(&s as &[u8]));
+        }
         let change_kind = match (&self.get(file_id), &contents) {
             (None, None) => return false,
             (None, Some(_)) => ChangeKind::Create,

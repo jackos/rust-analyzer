@@ -40,7 +40,7 @@ use crate::{
     line_index::LineEndings,
     lsp_ext::{self, PositionOrRange, ViewCrateGraphParams, WorkspaceSymbolParams},
     lsp_utils::{all_edits_are_disjoint, invalid_params_error},
-    notebook::{self, offset_position, offset_range},
+    notebook::{offset_position, offset_range},
     to_proto, LspError, Result,
 };
 
@@ -548,10 +548,15 @@ pub(crate) fn handle_will_rename_files(
 
 pub(crate) fn handle_goto_definition(
     snap: GlobalStateSnapshot,
-    params: lsp_types::GotoDefinitionParams,
+    mut params: lsp_types::GotoDefinitionParams,
 ) -> Result<Option<lsp_types::GotoDefinitionResponse>> {
     let _p = profile::span("handle_goto_definition");
+    if let Some(fragment) = params.text_document_position_params.text_document.uri.fragment() {
+        snap.notebook
+            .add_lines_to_position(&mut params.text_document_position_params.position, fragment);
+    }
     let position = from_proto::file_position(&snap, params.text_document_position_params)?;
+
     let nav_info = match snap.analysis.goto_definition(position)? {
         None => return Ok(None),
         Some(it) => it,
@@ -788,11 +793,11 @@ pub(crate) fn handle_completion(
 ) -> Result<Option<lsp_types::CompletionResponse>> {
     let _p = profile::span("handle_completion");
     let uri = params.text_document_position.text_document.uri.clone();
-    let original_position = params.text_document_position.clone();
     let mut offset = 0;
     if let Some(fragment) = uri.fragment() {
+        // snap.notebook.add_lines_to_position(&mut params.text_document_position.position, fragment);
         offset = snap.notebook.get_line_offset(fragment);
-        let text_inter = offset_position(params.text_document_position.position, offset);
+        let text_inter = offset_position(params.text_document_position.position, offset as i32);
         params.text_document_position = TextDocumentPositionParams {
             position: text_inter,
             text_document: TextDocumentIdentifier { uri },
@@ -823,15 +828,15 @@ pub(crate) fn handle_completion(
 
     let line_index = snap.file_line_index(new_file_position.file_id)?;
 
-    dbg!(&offset, &params.text_document_position);
     let new_items;
+    dbg!(offset);
     if offset != 0 {
         new_items = to_proto::completion_items_offset(
             &snap.config,
             &line_index,
             params.text_document_position,
             items,
-            -offset,
+            (offset as i32) * -1,
         );
     } else {
         new_items = to_proto::completion_items(
@@ -953,8 +958,7 @@ pub(crate) fn handle_hover(
     };
 
     if let Some(fragment) = params.text_document.uri.fragment() {
-        let offset = snap.notebook.get_line_offset(fragment);
-        range = offset_range(range, offset);
+        snap.notebook.add_lines_to_range(&mut range, fragment);
     }
 
     let file_range = from_proto::file_range(&snap, params.text_document, range)?;
@@ -1222,7 +1226,6 @@ pub(crate) fn handle_code_lens(
     snap: GlobalStateSnapshot,
     params: lsp_types::CodeLensParams,
 ) -> Result<Option<Vec<CodeLens>>> {
-    dbg!(&params);
     let mut offset = 0;
     if let Some(fragment) = params.text_document.uri.fragment() {
         offset = snap.notebook.get_line_offset(fragment);
@@ -1364,21 +1367,20 @@ pub(crate) fn handle_inlay_hints(
     snap: GlobalStateSnapshot,
     params: InlayHintParams,
 ) -> Result<Option<Vec<InlayHint>>> {
-    dbg!(params);
     let _p = profile::span("handle_inlay_hints");
+    let offset = match params.text_document.uri.fragment() {
+        Some(fragment) => snap.notebook.get_line_offset(fragment),
+        None => 0,
+    };
     let document_uri = &params.text_document.uri;
     let file_id = from_proto::file_id(&snap, document_uri)?;
     let line_index = snap.file_line_index(file_id)?;
     let range = from_proto::file_range(
         &snap,
         TextDocumentIdentifier::new(document_uri.to_owned()),
-        params.range,
+        offset_range(params.range, offset as i32),
     )?;
     let inlay_hints_config = snap.config.inlay_hints();
-    let offset = match params.text_document.uri.fragment() {
-        Some(fragment) => snap.notebook.get_line_offset(fragment),
-        None => 0,
-    };
     let mut hints: Vec<InlayHint> = snap
         .analysis
         .inlay_hints(&inlay_hints_config, file_id, Some(range))?
@@ -1386,7 +1388,7 @@ pub(crate) fn handle_inlay_hints(
         .map(|it| to_proto::inlay_hint(inlay_hints_config.render_colons, &line_index, it))
         .collect();
     for hint in &mut hints {
-        hint.position = notebook::offset_position(hint.position, -offset)
+        hint.position = offset_position(hint.position, -(offset as i32))
     }
 
     Ok(Some(hints))

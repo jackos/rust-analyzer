@@ -11,7 +11,7 @@ use crate::{
     line_index::{LineIndex, OffsetEncoding},
     lsp_ext,
     lsp_utils::invalid_params_error,
-    notebook, Result,
+    Result,
 };
 
 pub(crate) fn abs_path(url: &lsp_types::Url) -> Result<AbsPathBuf> {

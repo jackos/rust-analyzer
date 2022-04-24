@@ -10,7 +10,7 @@ use always_assert::always;
 use crossbeam_channel::{select, Receiver};
 use ide_db::base_db::{SourceDatabaseExt, VfsPath};
 use lsp_server::{Connection, Notification, Request};
-use lsp_types::{notification::Notification as _, Position, Range};
+use lsp_types::notification::Notification as _;
 use vfs::{ChangeKind, FileId};
 
 use crate::{
@@ -21,7 +21,6 @@ use crate::{
     handlers, lsp_ext,
     lsp_utils::{apply_document_changes, is_cancelled, notification_is, Progress},
     mem_docs::DocumentData,
-    notebook::offset_range,
     reload::{self, BuildDataProgress, ProjectWorkspaceProgress},
     Result,
 };
@@ -657,8 +656,10 @@ impl GlobalState {
             })?
             .on::<lsp_types::notification::DidOpenTextDocument>(|this, mut params| {
                 if let Some(fragment) = params.text_document.uri.fragment(){
-                    this.notebook.insert_cell(fragment, params.text_document.text);
-                    params.text_document.text = this.notebook.get_program();
+                    if params.text_document.language_id == "rust" || params.text_document.language_id == "rs" {
+                        this.notebook.insert_cell(fragment, params.text_document.text);
+                        params.text_document.text = this.notebook.get_program();
+                    }
                 }
                 if let Ok(path) = from_proto::vfs_path(&params.text_document.uri) {
                     if this
@@ -676,12 +677,12 @@ impl GlobalState {
                 Ok(())
             })?
             .on::<lsp_types::notification::DidChangeTextDocument>(|this, mut params| {
+                dbg!(&params);
                 if let Some(fragment) = params.text_document.uri.fragment() {
-                    let offset = this.notebook.get_line_offset(fragment);
-                    for i in 0..params.content_changes.len() {
-                        let range = params.content_changes[i].range.unwrap();
-                        params.content_changes[i].range = Some(offset_range(range, offset));
-                        // params.content_changes[i].text = this.notebook.get_program();
+                    for change in &mut params.content_changes {
+                        if let Some(range) = &mut change.range {
+                            this.notebook.add_lines_to_range(range, fragment);
+                        }
                     }
                 }
                 if let Ok(path) = from_proto::vfs_path(&params.text_document.uri) {
